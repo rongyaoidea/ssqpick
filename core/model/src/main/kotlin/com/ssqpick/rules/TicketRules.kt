@@ -78,8 +78,7 @@ object TicketRules {
         return redCombos(draft) * blueCombos(draft)
     }
 
-    private fun betCountOrZero(draft: TicketDraft): Long =
-        if (firstError(draft) != null) 0L else redCombos(draft) * blueCombos(draft)
+    private fun betCountOrZero(draft: TicketDraft): Long = if (firstError(draft) != null) 0L else redCombos(draft) * blueCombos(draft)
 
     /** 红球组合数。 */
     fun redCombos(draft: TicketDraft): Long {
@@ -133,14 +132,20 @@ object TicketRules {
     private fun blueSequences(draft: TicketDraft): Sequence<List<Int>> {
         val picked = draft.bluePicked.sorted()
         val bold = draft.blueBold.sorted()
-        return if (bold.isEmpty()) picked.asSequence().map { listOf(it) }
-        else picked.asSequence().map { bold + it }
+        return if (bold.isEmpty()) {
+            picked.asSequence().map { listOf(it) }
+        } else {
+            picked.asSequence().map { bold + it }
+        }
     }
 
     /** 生成 arr 的全部 k 子组合（升序，字典序）。 */
     fun combinations(arr: List<Int>, k: Int): Sequence<List<Int>> = sequence {
         if (k < 0 || k > arr.size) return@sequence
-        if (k == 0) { yield(emptyList()); return@sequence }
+        if (k == 0) {
+            yield(emptyList())
+            return@sequence
+        }
         val idx = IntArray(k) { it }
         while (true) {
             yield(List(k) { arr[idx[it]] })
@@ -169,8 +174,7 @@ object TicketRules {
         else -> null
     }
 
-    fun countRedMatches(betRed: List<Int>, drawRed: List<Int>): Int =
-        betRed.count { it in drawRed }
+    fun countRedMatches(betRed: List<Int>, drawRed: List<Int>): Int = betRed.count { it in drawRed }
 
     /** 单注命中的奖级。 */
     fun resultFor(bet: Bet, draw: Draw): Pair<PrizeTier?, Int> {
@@ -184,7 +188,7 @@ object TicketRules {
      */
     fun prizeBreakdown(draft: TicketDraft, draw: Draw): Map<PrizeTier, Long> {
         if (firstError(draft) != null) return emptyMap()
-        val redCount = redMatchCounts(draft, draw)   // 红球命中数 -> 注数
+        val redCount = redMatchCounts(draft, draw) // 红球命中数 -> 注数
         val (blueHit, blueTotal) = blueMatchCounts(draft, draw)
         val blueMiss = blueTotal - blueHit
         if (blueHit < 0 || blueMiss < 0) return emptyMap()
@@ -261,12 +265,11 @@ object TicketRules {
     }
 
     /** 展开后的注逐一命中（供 UI 展示具体哪注中了什么）。 */
-    fun evaluateBets(draft: TicketDraft, draw: Draw, limit: Long = 200L): List<Pair<Bet, PrizeTier?>> =
-        expand(draft).asSequence()
-            .take(limit.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
-            .map { bet -> bet to tierFor(countRedMatches(bet.red, draw.red), draw.blue in bet.blues) }
-            .filter { it.second != null }
-            .toList()
+    fun evaluateBets(draft: TicketDraft, draw: Draw, limit: Long = 200L): List<Pair<Bet, PrizeTier?>> = expand(draft).asSequence()
+        .take(limit.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+        .map { bet -> bet to tierFor(countRedMatches(bet.red, draw.red), draw.blue in bet.blues) }
+        .filter { it.second != null }
+        .toList()
 
     // ---------------------------------------------------------------- 工具
 

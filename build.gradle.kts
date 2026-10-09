@@ -16,6 +16,19 @@ subprojects {
             target("src/**/*.kt")
             targetExclude("**/build/**")
             ktlint()
+                .editorConfigOverride(
+                    mapOf(
+                        // Compose 的 @Composable 一律用帕斯卡命名（SsqCard / MachineScreen），
+                        // ktlint 的 function-naming 规则天生与之冲突，这里显式关掉。
+                        "ktlint_standard_function-naming" to "disabled",
+                        "ktlint_standard_no-wildcard-imports" to "disabled",
+                        "ktlint_standard_package-name" to "disabled",
+                        "ktlint_standard_discouraged-comment-location" to "disabled",
+                        "ktlint_standard_value-argument-comment" to "disabled",
+                        "ktlint_standard_value-parameter-comment" to "disabled",
+                        "ktlint_standard_backing-property-naming" to "disabled",
+                    ),
+                )
         }
     }
 }

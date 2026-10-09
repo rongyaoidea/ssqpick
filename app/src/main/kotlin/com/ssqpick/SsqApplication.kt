@@ -1,10 +1,10 @@
 package com.ssqpick
 
 import android.app.Application
-import com.ssqpick.store.dataModule
 import com.ssqpick.feature.check.checkModule
 import com.ssqpick.feature.machine.machineModule
 import com.ssqpick.feature.ticket.ticketModule
+import com.ssqpick.store.dataModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin

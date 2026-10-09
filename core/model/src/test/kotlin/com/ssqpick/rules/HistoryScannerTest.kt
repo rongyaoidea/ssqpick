@@ -41,8 +41,8 @@ class HistoryScannerTest {
     fun `命中过三等奖`() {
         val draft = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7))
         val draws = listOf(
-            draw("2026001", listOf(1, 2, 3, 4, 5, 6), blue = 9),   // 6红0蓝 -> 二等奖(浮动)
-            draw("2026002", listOf(1, 2, 3, 4, 5, 20), blue = 7),  // 5红1蓝 -> 三等奖
+            draw("2026001", listOf(1, 2, 3, 4, 5, 6), blue = 9), // 6红0蓝 -> 二等奖(浮动)
+            draw("2026002", listOf(1, 2, 3, 4, 5, 20), blue = 7), // 5红1蓝 -> 三等奖
         )
         val r = HistoryScanner.scan(draft, draws)
         assertEquals(PrizeTier.SECOND, r.highestTier)

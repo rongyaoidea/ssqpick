@@ -92,7 +92,7 @@ object HistoryScanner {
  */
 object OddsInfo {
 
-    const val RED_SPACE = 1_107_568L   // C(33,6)
+    const val RED_SPACE = 1_107_568L // C(33,6)
     const val BLUE_SPACE = 16L
     const val TOTAL_SPACE = 17_721_088L // C(33,6)*16
 

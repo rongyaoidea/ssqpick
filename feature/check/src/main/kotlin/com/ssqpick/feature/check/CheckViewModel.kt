@@ -2,13 +2,13 @@ package com.ssqpick.feature.check
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ssqpick.store.DrawRepository
-import com.ssqpick.store.SyncResult
-import com.ssqpick.store.TicketRepository
 import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.TicketCheckResult
 import com.ssqpick.rules.TicketRules
+import com.ssqpick.store.DrawRepository
+import com.ssqpick.store.SyncResult
+import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -107,16 +107,15 @@ class CheckViewModel(
     }
 
     /** 展示某张票各奖级明细。 */
-    fun tierLines(result: TicketCheckResult): List<String> =
-        result.tierCounts.entries
-            .sortedByDescending { it.key.rank }
-            .map { (tier, count) ->
-                val amount = result.tierAmounts[tier] ?: 0L
-                val amountText = if (tier.isFloating) {
-                    if (amount > 0) "单注 $amount 元" else "金额待开奖公告"
-                } else {
-                    "$amount 元"
-                }
-                "${tier.label} × $count 注（$amountText）"
+    fun tierLines(result: TicketCheckResult): List<String> = result.tierCounts.entries
+        .sortedByDescending { it.key.rank }
+        .map { (tier, count) ->
+            val amount = result.tierAmounts[tier] ?: 0L
+            val amountText = if (tier.isFloating) {
+                if (amount > 0) "单注 $amount 元" else "金额待开奖公告"
+            } else {
+                "$amount 元"
             }
+            "${tier.label} × $count 注（$amountText）"
+        }
 }

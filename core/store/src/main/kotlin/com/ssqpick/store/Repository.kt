@@ -3,22 +3,22 @@ package com.ssqpick.store
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
-import com.ssqpick.store.db.DrawQueries
-import com.ssqpick.store.db.Ticket as TicketRow
-import com.ssqpick.store.db.TicketQueries
-import com.ssqpick.store.mapper.encode
-import com.ssqpick.store.mapper.toDraw
-import com.ssqpick.store.mapper.toDraft
-import com.ssqpick.store.network.CwlApi
 import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
+import com.ssqpick.store.db.DrawQueries
+import com.ssqpick.store.db.TicketQueries
+import com.ssqpick.store.mapper.encode
+import com.ssqpick.store.mapper.toDraft
+import com.ssqpick.store.mapper.toDraw
+import com.ssqpick.store.network.CwlApi
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import com.ssqpick.store.db.Ticket as TicketRow
 
 /** 同步结果，供 UI 明确告知用户发生了什么。 */
 sealed interface SyncResult {
@@ -34,6 +34,7 @@ interface DrawRepository {
     suspend fun count(): Long
     suspend fun insertAll(draws: List<Draw>)
     suspend fun clear()
+
     /** 从官方接口增量同步。 */
     suspend fun syncFromOfficial(): SyncResult
 }
@@ -44,11 +45,9 @@ class DrawRepositoryImpl(
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : DrawRepository {
 
-    override fun observeAll(): Flow<List<Draw>> =
-        drawQueries.selectAllDraws().asFlow().mapToList(io).map { rows -> rows.map { it.toDraw() } }
+    override fun observeAll(): Flow<List<Draw>> = drawQueries.selectAllDraws().asFlow().mapToList(io).map { rows -> rows.map { it.toDraw() } }
 
-    override fun observeNewest(): Flow<Draw?> =
-        drawQueries.selectNewestDraw().asFlow().mapToOneOrNull(io).map { it?.toDraw() }
+    override fun observeNewest(): Flow<Draw?> = drawQueries.selectNewestDraw().asFlow().mapToOneOrNull(io).map { it?.toDraw() }
 
     override suspend fun all(): List<Draw> = withContext(io) {
         drawQueries.selectAllDraws().executeAsList().map { it.toDraw() }
@@ -126,8 +125,7 @@ class TicketRepositoryImpl(
         draft = row.toDraft(),
     )
 
-    override fun observeAll(): Flow<List<Ticket>> =
-        ticketQueries.selectAllTickets().asFlow().mapToList(io).map { rows -> rows.map(::rowToTicket) }
+    override fun observeAll(): Flow<List<Ticket>> = ticketQueries.selectAllTickets().asFlow().mapToList(io).map { rows -> rows.map(::rowToTicket) }
 
     override suspend fun all(): List<Ticket> = withContext(io) {
         ticketQueries.selectAllTickets().executeAsList().map(::rowToTicket)

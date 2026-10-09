@@ -14,8 +14,7 @@ import java.nio.FloatBuffer
 object Mat4 {
     fun identity(out: FloatArray) = Matrix.setIdentityM(out, 0)
 
-    fun perspective(out: FloatArray, fovY: Float, aspect: Float, near: Float, far: Float) =
-        Matrix.perspectiveM(out, 0, fovY, aspect, near, far)
+    fun perspective(out: FloatArray, fovY: Float, aspect: Float, near: Float, far: Float) = Matrix.perspectiveM(out, 0, fovY, aspect, near, far)
 
     fun lookAt(
         out: FloatArray,
@@ -59,11 +58,10 @@ object Mat4 {
     }
 }
 
-fun floatBuffer(data: FloatArray): FloatBuffer =
-    ByteBuffer.allocateDirect(data.size * 4)
-        .order(ByteOrder.nativeOrder())
-        .asFloatBuffer()
-        .apply {
-            put(data)
-            position(0)
-        }
+fun floatBuffer(data: FloatArray): FloatBuffer = ByteBuffer.allocateDirect(data.size * 4)
+    .order(ByteOrder.nativeOrder())
+    .asFloatBuffer()
+    .apply {
+        put(data)
+        position(0)
+    }

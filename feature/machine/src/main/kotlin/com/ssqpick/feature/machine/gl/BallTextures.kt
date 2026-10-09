@@ -68,15 +68,19 @@ object BallTextures {
 
         // 底色整格铺满，相邻格之间不留缝
         canvas.drawRect(
-            x.toFloat(), y.toFloat(),
-            (x + CELL).toFloat(), (y + CELL).toFloat(),
+            x.toFloat(),
+            y.toFloat(),
+            (x + CELL).toFloat(),
+            (y + CELL).toFloat(),
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = baseColor },
         )
 
         // 中央白色圆牌，稍微小于格子，两格交界处仍是纯底色
         val pad = CELL * 0.19f
         canvas.drawCircle(
-            x + CELL / 2f, y + CELL / 2f, CELL / 2f - pad,
+            x + CELL / 2f,
+            y + CELL / 2f,
+            CELL / 2f - pad,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE },
         )
 

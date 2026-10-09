@@ -53,17 +53,13 @@ data class TicketDraft(
     /** 草稿是否为空。 */
     val isEmpty: Boolean get() = redPool.isEmpty() && bluePool.isEmpty()
 
-    fun withRed(number: Int): TicketDraft =
-        copy(redPicked = redPicked + number)
+    fun withRed(number: Int): TicketDraft = copy(redPicked = redPicked + number)
 
-    fun withoutRed(number: Int): TicketDraft =
-        copy(redPicked = redPicked - number, redBold = redBold - number)
+    fun withoutRed(number: Int): TicketDraft = copy(redPicked = redPicked - number, redBold = redBold - number)
 
-    fun withBlue(number: Int): TicketDraft =
-        copy(bluePicked = bluePicked + number)
+    fun withBlue(number: Int): TicketDraft = copy(bluePicked = bluePicked + number)
 
-    fun withoutBlue(number: Int): TicketDraft =
-        copy(bluePicked = bluePicked - number, blueBold = blueBold - number)
+    fun withoutBlue(number: Int): TicketDraft = copy(bluePicked = bluePicked - number, blueBold = blueBold - number)
 }
 
 /** 已保存的票。 */

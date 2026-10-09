@@ -16,8 +16,7 @@ object NumberGenerator {
     private val random = SecureRandom()
 
     /** 生成一注号码（红球升序）。 */
-    fun generateBet(): Bet =
-        Bet(sample(TicketRules.RED_TOTAL, TicketRules.RED_PICK), listOf(1 + random.nextInt(TicketRules.BLUE_TOTAL)))
+    fun generateBet(): Bet = Bet(sample(TicketRules.RED_TOTAL, TicketRules.RED_PICK), listOf(1 + random.nextInt(TicketRules.BLUE_TOTAL)))
 
     /** 从 1..total 中无放回均匀抽取 [count] 个，升序返回。 */
     fun sample(total: Int, count: Int): List<Int> {
@@ -26,7 +25,9 @@ object NumberGenerator {
         // 部分 Fisher-Yates：前 count 个位置完成洗牌
         for (i in 0 until count) {
             val j = i + random.nextInt(total - i)
-            val tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp
+            val tmp = pool[i]
+            pool[i] = pool[j]
+            pool[j] = tmp
         }
         pool.sort(0, count)
         return pool.take(count)

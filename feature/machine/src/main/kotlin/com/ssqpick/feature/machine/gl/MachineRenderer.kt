@@ -2,8 +2,8 @@ package com.ssqpick.feature.machine.gl
 
 import android.opengl.GLES30
 import android.opengl.Matrix
-import com.ssqpick.feature.machine.physics.Ball
 import com.ssqpick.feature.machine.MachineLayout
+import com.ssqpick.feature.machine.physics.Ball
 import com.ssqpick.feature.machine.physics.DrumWorld
 
 /** 一台鼓的渲染配置。槽位布局集中在 [MachineLayout]，避免两处各写一遍。 */
@@ -138,9 +138,11 @@ class MachineRenderer(
         return o
     }
 
-    private fun atlasCell(kind: DrumRenderSpec.Kind, number: Int): Int =
-        if (kind == DrumRenderSpec.Kind.RED) (number - 1).coerceIn(0, 32)
-        else 33 + (number - 1).coerceIn(0, 15)
+    private fun atlasCell(kind: DrumRenderSpec.Kind, number: Int): Int = if (kind == DrumRenderSpec.Kind.RED) {
+        (number - 1).coerceIn(0, 32)
+    } else {
+        33 + (number - 1).coerceIn(0, 15)
+    }
 
     private fun drawInstanced(count: Int) {
         GLES30.glUseProgram(ballProgram)
@@ -169,7 +171,9 @@ class MachineRenderer(
         GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(ballProgram, "uViewProj"), 1, false, viewProj, 0)
         GLES30.glUniform3f(
             GLES30.glGetUniformLocation(ballProgram, "uCameraPos"),
-            cameraPos[0], cameraPos[1], cameraPos[2],
+            cameraPos[0],
+            cameraPos[1],
+            cameraPos[2],
         )
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, atlasId)
@@ -200,7 +204,9 @@ class MachineRenderer(
         GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(shellProgram, "uViewProj"), 1, false, viewProj, 0)
         GLES30.glUniform3f(
             GLES30.glGetUniformLocation(shellProgram, "uCameraPos"),
-            cameraPos[0], cameraPos[1], cameraPos[2],
+            cameraPos[0],
+            cameraPos[1],
+            cameraPos[2],
         )
         GLES30.glUniform4f(GLES30.glGetUniformLocation(shellProgram, "uColor"), 0.10f, 0.12f, 0.17f, 0.85f)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(shellProgram, "uFresnelPower"), 3f)
@@ -235,7 +241,9 @@ class MachineRenderer(
         GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(shellProgram, "uViewProj"), 1, false, viewProj, 0)
         GLES30.glUniform3f(
             GLES30.glGetUniformLocation(shellProgram, "uCameraPos"),
-            cameraPos[0], cameraPos[1], cameraPos[2],
+            cameraPos[0],
+            cameraPos[1],
+            cameraPos[2],
         )
         GLES30.glUniform4f(GLES30.glGetUniformLocation(shellProgram, "uColor"), 0.55f, 0.72f, 0.95f, 0.13f)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(shellProgram, "uFresnelPower"), 2.4f)

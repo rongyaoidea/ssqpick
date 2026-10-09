@@ -1,6 +1,6 @@
 package com.ssqpick.feature.machine.gl
 
-/** GLSL ES 3.0 着色器源码。 */
+// GLSL ES 3.0 着色器源码。
 
 /**
  * 球的顶点着色器。

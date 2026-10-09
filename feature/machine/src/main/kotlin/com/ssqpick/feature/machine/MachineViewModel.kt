@@ -2,10 +2,10 @@ package com.ssqpick.feature.machine
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ssqpick.store.TicketRepository
 import com.ssqpick.model.Ticket
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
+import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow

@@ -35,9 +35,14 @@ class SphereMesh(slices: Int = 24, rings: Int = 16) {
                 val x = (sp * cr).toFloat()
                 val y = cp.toFloat()
                 val z = (sp * sr).toFloat()
-                verts += x; verts += y; verts += z
-                normals += x; normals += y; normals += z
-                uvs += u; uvs += 1f - v
+                verts += x
+                verts += y
+                verts += z
+                normals += x
+                normals += y
+                normals += z
+                uvs += u
+                uvs += 1f - v
             }
         }
 
@@ -46,8 +51,12 @@ class SphereMesh(slices: Int = 24, rings: Int = 16) {
             for (s in 0 until slices) {
                 val a = r * (slices + 1) + s
                 val b = a + slices + 1
-                indices += a; indices += b; indices += a + 1
-                indices += a + 1; indices += b; indices += b + 1
+                indices += a
+                indices += b
+                indices += a + 1
+                indices += a + 1
+                indices += b
+                indices += b + 1
             }
         }
 

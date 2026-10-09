@@ -74,7 +74,14 @@ class CwlApi(
 
 fun defaultClient(): HttpClient = HttpClient(OkHttp) {
     expectSuccess = false
-    install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; isLenient = true }) }
+    install(ContentNegotiation) {
+        json(
+            Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+            },
+        )
+    }
     install(HttpTimeout) {
         connectTimeoutMillis = 15_000
         requestTimeoutMillis = 30_000

@@ -4,9 +4,9 @@ import com.ssqpick.model.Draw
 import com.ssqpick.model.DrawPrizeGrade
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.TicketDraft
+import kotlinx.datetime.LocalDate
 import com.ssqpick.store.db.Draw as DrawRow
 import com.ssqpick.store.db.Ticket as TicketRow
-import kotlinx.datetime.LocalDate
 
 /**
  * 号码集合 ⇄ 逗号分隔字符串。
@@ -16,8 +16,7 @@ import kotlinx.datetime.LocalDate
  */
 fun List<Int>.encode(): String = sorted().joinToString(",")
 
-fun String.decodeNumbers(): List<Int> =
-    if (isBlank()) emptyList() else split(',').mapNotNull { it.trim().toIntOrNull() }
+fun String.decodeNumbers(): List<Int> = if (isBlank()) emptyList() else split(',').mapNotNull { it.trim().toIntOrNull() }
 
 // ---------------------------------------------------------------- Draw
 

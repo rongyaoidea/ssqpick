@@ -2,19 +2,19 @@ package com.ssqpick.feature.ticket
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ssqpick.store.DrawRepository
-import com.ssqpick.store.SyncResult
-import com.ssqpick.store.TicketRepository
 import com.ssqpick.model.Draw
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.TicketRules
+import com.ssqpick.store.DrawRepository
+import com.ssqpick.store.SyncResult
+import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -137,6 +137,5 @@ class TicketViewModel(
     }
 
     /** 某张票的历史战绩。 */
-    suspend fun historyOf(draft: TicketDraft) =
-        HistoryScanner.scan(draft, drawRepository.all())
+    suspend fun historyOf(draft: TicketDraft) = HistoryScanner.scan(draft, drawRepository.all())
 }

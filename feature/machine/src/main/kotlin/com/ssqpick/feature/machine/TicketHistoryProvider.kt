@@ -1,8 +1,8 @@
 package com.ssqpick.feature.machine
 
-import com.ssqpick.store.DrawRepository
 import com.ssqpick.model.Draw
 import com.ssqpick.model.TicketDraft
+import com.ssqpick.store.DrawRepository
 
 /**
  * 摇号结果的历史战绩查询。

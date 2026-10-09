@@ -87,7 +87,9 @@ class DrumWorld(
                 b.x = (r * s * kotlin.math.cos(phi)).toFloat()
                 b.y = (r * u).toFloat()
                 b.z = (r * s * kotlin.math.sin(phi)).toFloat()
-                b.vx = 0f; b.vy = 0f; b.vz = 0f
+                b.vx = 0f
+                b.vy = 0f
+                b.vz = 0f
                 tries++
             } while (tries < 60 && balls.any { it !== b && overlaps(it, b) })
             b.escaping = false
@@ -96,7 +98,9 @@ class DrumWorld(
     }
 
     private fun overlaps(a: Ball, b: Ball): Boolean {
-        val dx = a.x - b.x; val dy = a.y - b.y; val dz = a.z - b.z
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        val dz = a.z - b.z
         val min = ballRadius * 2
         return dx * dx + dy * dy + dz * dz < min * min
     }
@@ -123,7 +127,9 @@ class DrumWorld(
         val w2 = w * w
         for (b in balls) {
             if (b.settled) {
-                b.vx = 0f; b.vy = 0f; b.vz = 0f
+                b.vx = 0f
+                b.vy = 0f
+                b.vz = 0f
                 continue
             }
             if (b.escaping) {
@@ -143,7 +149,9 @@ class DrumWorld(
             val sp = b.speed
             if (sp > maxSpeed) {
                 val s = maxSpeed / sp
-                b.vx *= s; b.vy *= s; b.vz *= s
+                b.vx *= s
+                b.vy *= s
+                b.vz *= s
             }
             b.x += b.vx * h
             b.y += b.vy * h
@@ -169,15 +177,21 @@ class DrumWorld(
                 var d2 = dx * dx + dy * dy + dz * dz
                 if (d2 >= min * min || d2 <= 1e-12f) continue
                 val d = sqrt(d2)
-                val nx = dx / d; val ny = dy / d; val nz = dz / d
+                val nx = dx / d
+                val ny = dy / d
+                val nz = dz / d
 
                 // 位置分离，各退一半
                 val overlap = min - d
                 if (!a.escaping && !a.settled) {
-                    a.x -= nx * overlap * 0.5f; a.y -= ny * overlap * 0.5f; a.z -= nz * overlap * 0.5f
+                    a.x -= nx * overlap * 0.5f
+                    a.y -= ny * overlap * 0.5f
+                    a.z -= nz * overlap * 0.5f
                 }
                 if (!b.escaping && !b.settled) {
-                    b.x += nx * overlap * 0.5f; b.y += ny * overlap * 0.5f; b.z += nz * overlap * 0.5f
+                    b.x += nx * overlap * 0.5f
+                    b.y += ny * overlap * 0.5f
+                    b.z += nz * overlap * 0.5f
                 }
 
                 // 相对速度沿法向的分量
@@ -192,11 +206,17 @@ class DrumWorld(
                     val rr = (other.vx - solid.vx) * nx + (other.vy - solid.vy) * ny + (other.vz - solid.vz) * nz
                     if (rr < 0f) {
                         val jj = -(1f + e) * rr
-                        solid.vx += jj * nx; solid.vy += jj * ny; solid.vz += jj * nz
+                        solid.vx += jj * nx
+                        solid.vy += jj * ny
+                        solid.vz += jj * nz
                     }
                 } else {
-                    a.vx -= jimp * nx; a.vy -= jimp * ny; a.vz -= jimp * nz
-                    b.vx += jimp * nx; b.vy += jimp * ny; b.vz += jimp * nz
+                    a.vx -= jimp * nx
+                    a.vy -= jimp * ny
+                    a.vz -= jimp * nz
+                    b.vx += jimp * nx
+                    b.vy += jimp * ny
+                    b.vz += jimp * nz
                 }
             }
         }
@@ -209,8 +229,12 @@ class DrumWorld(
             if (b.escaping || b.settled) continue
             val d = V3.len(b.x, b.y, b.z)
             if (d <= limit || d <= 1e-6f) continue
-            val nx = b.x / d; val ny = b.y / d; val nz = b.z / d
-            b.x = nx * limit; b.y = ny * limit; b.z = nz * limit
+            val nx = b.x / d
+            val ny = b.y / d
+            val nz = b.z / d
+            b.x = nx * limit
+            b.y = ny * limit
+            b.z = nz * limit
 
             val vn = b.vx * nx + b.vy * ny + b.vz * nz
             if (vn <= 0f) {

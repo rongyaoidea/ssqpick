@@ -29,7 +29,7 @@ class DrumWorldTest {
         val limit = w.drumRadius - w.ballRadius
         val worst = w.balls.maxOf { V3.len(it.x, it.y, it.z) }
         // 允许数值误差量级的溢出，但绝不允许真的飞出去
-        assertTrue("有球跑到鼓外：最远 ${worst}（上限 $limit）", worst <= limit + 1e-3f)
+        assertTrue("有球跑到鼓外：最远 $worst（上限 $limit）", worst <= limit + 1e-3f)
     }
 
     @Test
@@ -50,15 +50,18 @@ class DrumWorldTest {
         var worstOverlap = 0f
         for (i in w.balls.indices) {
             for (j in i + 1 until w.balls.size) {
-                val a = w.balls[i]; val b = w.balls[j]
-                val dx = a.x - b.x; val dy = a.y - b.y; val dz = a.z - b.z
+                val a = w.balls[i]
+                val b = w.balls[j]
+                val dx = a.x - b.x
+                val dy = a.y - b.y
+                val dz = a.z - b.z
                 val d = V3.len(dx, dy, dz)
                 val overlap = 2 * w.ballRadius - d
                 if (overlap > worstOverlap) worstOverlap = overlap
             }
         }
         assertTrue(
-            "球体重叠 ${worstOverlap}，超过允许的 ${w.ballRadius * 0.5f}",
+            "球体重叠 $worstOverlap，超过允许的 ${w.ballRadius * 0.5f}",
             worstOverlap <= w.ballRadius * 0.5f,
         )
     }
