@@ -1,0 +1,33 @@
+-- 已保存的票。胆码与拖码用逗号分隔的字符串存储（红/蓝各自最多 33 个，开销可忽略）。
+CREATE TABLE ticket (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    label TEXT,
+    red_bold TEXT NOT NULL DEFAULT '',
+    red_picked TEXT NOT NULL,
+    blue_bold TEXT NOT NULL DEFAULT '',
+    blue_picked TEXT NOT NULL
+);
+
+insertTicket:
+INSERT INTO ticket (created_at, label, red_bold, red_picked, blue_bold, blue_picked)
+VALUES (?, ?, ?, ?, ?, ?);
+
+updateTicketLabel:
+UPDATE ticket SET label = ? WHERE id = ?;
+
+deleteTicket:
+DELETE FROM ticket WHERE id = ?;
+
+selectAllTickets:
+SELECT * FROM ticket ORDER BY created_at DESC;
+
+selectTicketById:
+SELECT * FROM ticket WHERE id = ?;
+
+selectTicketCount:
+SELECT COUNT(*) FROM ticket;
+
+-- 取刚插入行的自增 id（SQLDelight 不会为此表自动生成该方法）
+selectLastInsertRowId:
+SELECT last_insert_rowid();

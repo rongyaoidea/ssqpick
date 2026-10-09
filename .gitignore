@@ -1,0 +1,15 @@
+# Gradle / Android 构建产物
+build/
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.cxx/
+
+# 打包产物与签名
+*.apk
+*.aab
+*.iml
+
+# 系统杂项
+.DS_Store
