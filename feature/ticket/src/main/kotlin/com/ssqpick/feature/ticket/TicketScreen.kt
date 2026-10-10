@@ -235,7 +235,7 @@ private fun SyncCard(
             color = SketchPalette.Ink,
         )
         Text(
-            "数据来源：中国福彩发行管理中心官方开奖公告。",
+            "数据来源：中国福彩发行管理中心官方公告（2013 年至今，首次同步会补齐全部历史）。",
             style = MaterialTheme.typography.bodySmall,
             color = SketchPalette.InkSoft,
         )

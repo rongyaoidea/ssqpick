@@ -86,24 +86,54 @@ class DrawRepositoryImpl(
     /**
      * 增量同步。
      *
-     * 官方接口返回最近若干期，按库里最新期号筛出真正新增的部分。
-     * 首次运行时库为空，会一次性导入全部历史（官方仅提供 2013 年起数据）。
+     * 官方提供 2013 至今约 2000+ 期（实测 issueCount 放大即可一次取回）。
+     * 两种路径：
+     * - **全量回填**：库为空、或本地期数明显不足（老版本只同步过 500 期），
+     *   一次请求取回全部历史；
+     * - **增量**：其余情况只取最近 500 期，按日期筛出新增。
+     *
+     * 新增期数用"前后计数差"计算，而不是 remote.size——回填时库里已有部分
+     * 数据，insertOrIgnore 会去重，按 remote.size 报数会说谎。
      */
     override suspend fun syncFromOfficial(): SyncResult = withContext(io) {
         runCatching {
             val localNewest = drawQueries.selectNewestDraw().executeAsOneOrNull()
-            val remote = api.fetchRecent(issueCount = 500).sortedByDescending { it.date }
+            val before = drawQueries.selectDrawCount().executeAsOne()
+
+            val backfill = localNewest == null || before < BACKFILL_MIN_DRAWS
+            val remote = if (backfill) {
+                api.fetchFullHistory()
+            } else {
+                api.fetchRecent(issueCount = RECENT_WINDOW).sortedByDescending { it.date }
+            }
             if (remote.isEmpty()) return@withContext SyncResult.Failure("接口未返回开奖数据")
 
-            val fresh = if (localNewest == null) {
+            // 回填时全量交给 insertOrIgnore 去重；增量时必须先按日期筛，
+            // 否则把 500 期整批重插一遍（虽然无害，但白写几十个事务步骤）
+            val fresh = if (backfill || localNewest == null) {
                 remote
             } else {
                 remote.filter { it.date.toString() > localNewest.date.toString() }
             }
             if (fresh.isEmpty()) return@withContext SyncResult.AlreadyUpToDate
+
             insertAll(fresh)
-            SyncResult.Success(fresh.size, drawQueries.selectDrawCount().executeAsOne())
+            val total = drawQueries.selectDrawCount().executeAsOne()
+            val imported = (total - before).toInt()
+            if (imported <= 0) {
+                SyncResult.AlreadyUpToDate
+            } else {
+                SyncResult.Success(imported, total)
+            }
         }.getOrElse { e -> SyncResult.Failure(e.message ?: e::class.simpleName ?: "未知错误") }
+    }
+
+    companion object {
+        /** 增量窗口：最近 500 期（约 3.2 年），足够覆盖任何合理的同步间隔。 */
+        const val RECENT_WINDOW = 500
+
+        /** 本地不足这个数视为历史不完整，触发全量回填（官方现有 2000+ 期）。 */
+        const val BACKFILL_MIN_DRAWS = 1_200L
     }
 }
 
