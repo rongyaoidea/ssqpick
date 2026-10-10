@@ -7,9 +7,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,10 +52,16 @@ import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.theme.SsqDimens
 import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
+import com.ssqpick.rules.CoOccurrenceReport
 import com.ssqpick.rules.DrawSchedule
+import com.ssqpick.rules.FollowReport
 import com.ssqpick.rules.MonteCarloReport
 import com.ssqpick.rules.NumberStats
+import com.ssqpick.rules.PairStat
+import com.ssqpick.rules.PeriodMatch
 import com.ssqpick.rules.ShapeStats
+import com.ssqpick.rules.onThisDayOf
+import com.ssqpick.rules.samePeriodOf
 import kotlinx.coroutines.delay
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.Instant
@@ -78,6 +87,9 @@ fun DataScreen(
     val simming by viewModel.simming.collectAsStateWithLifecycle()
     val drawList by viewModel.drawList.collectAsStateWithLifecycle()
     val notifyOn by viewModel.notifyOn.collectAsStateWithLifecycle()
+    val cooc by viewModel.coOccurrence.collectAsStateWithLifecycle()
+    val follow by viewModel.follow.collectAsStateWithLifecycle()
+    val followTarget by viewModel.followTarget.collectAsStateWithLifecycle()
 
     // 开奖通知是订阅制：开启时顺手申请通知权限（API 33+）
     val context = LocalContext.current
@@ -128,6 +140,22 @@ fun DataScreen(
         }
         item {
             Column(Modifier.padding(horizontal = 14.dp)) {
+                CoOccurrenceCard(cooc)
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+        item {
+            Column(Modifier.padding(horizontal = 14.dp)) {
+                FollowCard(
+                    report = follow,
+                    target = followTarget,
+                    onSelect = viewModel::selectFollowTarget,
+                )
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+        item {
+            Column(Modifier.padding(horizontal = 14.dp)) {
                 ShapeCard(shape)
                 Spacer(Modifier.height(14.dp))
             }
@@ -162,6 +190,7 @@ fun DataScreen(
         items(drawList, key = { it.code }) { draw ->
             DrawRow(
                 draw = draw,
+                allDraws = drawList,
                 expanded = draw.code == expandedCode,
                 onToggle = {
                     expandedCode = if (expandedCode == draw.code) null else draw.code
@@ -174,7 +203,12 @@ fun DataScreen(
 
 /** 单期开奖行：点开看详情。为 2000+ 行性能，刻意不用手绘卡片（每行一次抖动路径没意义）。 */
 @Composable
-private fun DrawRow(draw: Draw, expanded: Boolean, onToggle: () -> Unit) {
+private fun DrawRow(
+    draw: Draw,
+    allDraws: List<Draw>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -232,6 +266,36 @@ private fun DrawRow(draw: Draw, expanded: Boolean, onToggle: () -> Unit) {
             Spacer(Modifier.height(4.dp))
             SketchMetaRow(label = "销售额", value = if (draw.sales > 0) formatYuan(draw.sales) else "—")
             SketchMetaRow(label = "奖池", value = if (draw.poolAmount > 0) formatYuan(draw.poolAmount) else "—")
+
+            // 历史对照：历年同期 + 往年的今天（数据变了会跟着重算）
+            val periodMatches = remember(draw.code, allDraws) { samePeriodOf(allDraws, draw) }
+            val dayMatches = remember(draw.code, allDraws) { onThisDayOf(allDraws, draw) }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "历年同期（第 ${draw.code.drop(4)} 期）",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkSoft,
+            )
+            Spacer(Modifier.height(2.dp))
+            if (periodMatches.isEmpty()) {
+                Text(
+                    "历年无同期。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SketchPalette.InkFaint,
+                )
+            } else {
+                periodMatches.forEach { m -> MatchLine(m, label = m.draw.code) }
+            }
+            if (dayMatches.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "往年的今天（%d月%d日）".format(draw.date.monthNumber, draw.date.dayOfMonth),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SketchPalette.InkSoft,
+                )
+                Spacer(Modifier.height(2.dp))
+                dayMatches.forEach { m -> MatchLine(m, label = m.draw.date.toString()) }
+            }
         }
         Spacer(Modifier.height(6.dp))
         Box(
@@ -571,6 +635,164 @@ private fun SimCard(
             tilt = 0.4f,
         )
     }
+}
+
+/** 同出/相克：全库红球两两共现，顶部与底部各取若干对，配理论期望说明。 */
+@Composable
+private fun CoOccurrenceCard(report: CoOccurrenceReport?) {
+    SketchCard(seed = "data-cooc", tilt = -0.25f) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SketchSectionTitle("同出与相克")
+            report?.let { SketchChip(label = "全库 ${it.draws} 期", seed = "cooc-draws", fill = null) }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (report == null || report.draws == 0) {
+            Text(
+                "同步开奖数据后统计红球两两共现。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.InkSoft,
+            )
+            return@SketchCard
+        }
+        Text("常一起出", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+        Spacer(Modifier.height(4.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            report.topPairs.forEach { PairChip(it) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("少见同出", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+        Spacer(Modifier.height(4.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            report.bottomPairs.forEach { PairChip(it) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "每对理论期望 ≈%.0f 次（%d 期）——高低都只是随机涨落，同出/相克是描述，不是关系。"
+                .format(report.expectedPerPair, report.draws),
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+    }
+}
+
+@Composable
+private fun PairChip(stat: PairStat) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        NumberBall(stat.a, isBlue = false, size = 24.dp)
+        NumberBall(stat.b, isBlue = false, size = 24.dp)
+        Text("${stat.count}次", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+    }
+}
+
+/** 历史跟随：选一个号，看它出现后的下一期最常出什么。 */
+@Composable
+private fun FollowCard(
+    report: FollowReport?,
+    target: FollowTarget,
+    onSelect: (Int, Boolean) -> Unit,
+) {
+    SketchCard(seed = "data-follow", tilt = 0.25f) {
+        SketchSectionTitle("历史跟随")
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SketchMiniButton(
+                label = "红球",
+                seed = "follow-mode-red",
+                onClick = { onSelect(target.number.coerceIn(1, 33), false) },
+                filled = !target.isBlue,
+                modifier = Modifier.weight(1f),
+            )
+            SketchMiniButton(
+                label = "蓝球",
+                seed = "follow-mode-blue",
+                onClick = { onSelect(target.number.coerceIn(1, 16), true) },
+                filled = target.isBlue,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val count = if (target.isBlue) 16 else 33
+            (1..count).forEach { n ->
+                SketchMiniButton(
+                    label = "%02d".format(n),
+                    seed = "follow-n-$n",
+                    onClick = { onSelect(n, target.isBlue) },
+                    filled = n == target.number,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (report == null || report.appearances == 0) {
+            Text(
+                "同步开奖数据后统计（该号出现后至少要有下一期）。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.InkSoft,
+            )
+            return@SketchCard
+        }
+        Text(
+            "%02d 开出后的下一期（共 %d 次），最常出现：".format(target.number, report.appearances),
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+        Spacer(Modifier.height(6.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            report.followers.forEach { f ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    NumberBall(f.number, isBlue = target.isBlue, size = 24.dp)
+                    Text("${f.count}次", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "每个号理论期望 ≈%.1f 次——跟随是描述，没有“必跟号”。".format(report.expectedPerNumber),
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+    }
+}
+
+/** 历史对照的一行：期号/日期 + 号码 + 重合信息。 */
+@Composable
+private fun MatchLine(m: PeriodMatch, label: String) {
+    Text(
+        buildString {
+            append(label)
+            append(" · ")
+            append(m.draw.red.joinToString(" ") { "%02d".format(it) })
+            append(" + %02d".format(m.draw.blue))
+            append(" · 重合 ${m.redOverlap} 红")
+            if (m.blueMatch) append("、蓝同")
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = SketchPalette.Ink,
+    )
 }
 
 private fun weekdayZh(d: DayOfWeek): String = when (d) {

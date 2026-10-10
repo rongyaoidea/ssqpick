@@ -26,6 +26,7 @@ import com.ssqpick.store.DrawRepository
 import com.ssqpick.store.PurchaseRepository
 import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -81,6 +82,8 @@ class TicketViewModel(
     private val drawRepository: DrawRepository,
     private val purchaseRepository: PurchaseRepository,
     private val draftStorage: DraftStorage,
+    /** 派生统计的计算调度器；测试注入虚拟调度器，生产用 Default。 */
+    private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(TicketUiState())
@@ -110,7 +113,7 @@ class TicketViewModel(
             val window = u.backtestRange.draws?.let { n -> draws.take(n) } ?: draws
             if (u.draft.isValid) runBacktest(u.draft, window) else null
         }
-            .flowOn(Dispatchers.Default)
+            .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -139,7 +142,7 @@ class TicketViewModel(
                 }
             }
         }
-            .flowOn(Dispatchers.Default)
+            .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** 选号指纹：当前草稿在历史分布中的位置，随选号实时更新。 */
@@ -147,7 +150,7 @@ class TicketViewModel(
         combine(_ui, draws) { u, draws ->
             fingerprintOf(u.draft, draws)
         }
-            .flowOn(Dispatchers.Default)
+            .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** 号码遗漏：选号格下的小字用。开奖库变化时重算，毫秒级。 */
@@ -162,7 +165,7 @@ class TicketViewModel(
             val byTicket = ps.groupBy { it.ticketId }
             ts.associate { t -> t.id to summaryOf(t, byTicket[t.id].orEmpty(), asc) }
         }
-            .flowOn(Dispatchers.Default)
+            .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** 真实账本：全部购买的投入/奖金/累计净收益时间线。 */
@@ -170,7 +173,7 @@ class TicketViewModel(
         combine(purchases, tickets, draws) { ps, ts, draws ->
             ledgerOf(ps, ts.associateBy { it.id }, draws.asReversed())
         }
-            .flowOn(Dispatchers.Default)
+            .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PurchaseLedger(0, 0, 0L, 0L, emptyList()))
 
     /** 购票日历：购买日期 → 当日最高信号标记。 */
@@ -178,7 +181,7 @@ class TicketViewModel(
         combine(purchases, tickets, draws) { ps, ts, ds ->
             dayMarksOf(ps, ts.associateBy { it.id }, ds.asReversed())
         }
-            .flowOn(Dispatchers.Default)
+            .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** 每张存票的历史最佳：库或票变化时重算。 */
@@ -186,7 +189,7 @@ class TicketViewModel(
         combine(tickets, draws) { ts, draws ->
             ts.associate { it.id to HistoryScanner.scan(it.draft, draws) }
         }
-            .flowOn(Dispatchers.Default)
+            .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     init {

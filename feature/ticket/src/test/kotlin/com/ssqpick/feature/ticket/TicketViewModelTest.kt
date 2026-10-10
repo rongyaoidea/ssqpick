@@ -15,6 +15,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -94,6 +95,46 @@ class TicketViewModelTest {
         purchaseRepo: FakePurchaseRepo = FakePurchaseRepo(),
         draftStorage: FakeDraftStorage = FakeDraftStorage(),
     ) = TicketViewModel(FakeTicketRepo(), FakeDrawRepo(), purchaseRepo, draftStorage)
+
+    private fun reactiveVm(repo: ReactiveDrawRepo) = TicketViewModel(FakeTicketRepo(), repo, FakePurchaseRepo(), FakeDraftStorage(), computeDispatcher = dispatcher)
+
+    private class ReactiveDrawRepo : DrawRepository {
+        val state = MutableStateFlow<List<Draw>>(emptyList())
+        override fun observeAll(): Flow<List<Draw>> = state.map { it.sortedByDescending { d -> d.date } }
+        override fun observeNewest(): Flow<Draw?> = state.map { it.maxByOrNull { d -> d.date } }
+        override suspend fun all(): List<Draw> = state.value
+        override suspend fun count(): Long = state.value.size.toLong()
+        override suspend fun insertAll(draws: List<Draw>) {
+            state.value += draws
+        }
+
+        override suspend fun syncFromOfficial(): SyncResult = SyncResult.AlreadyUpToDate
+    }
+
+    @Test
+    fun `新开奖数据进来后选号侧派生流同步重算`() = runTest {
+        val repo = ReactiveDrawRepo()
+        repo.state.value = listOf(
+            Draw("2026001", kotlinx.datetime.LocalDate.parse("2026-01-01"), listOf(1, 2, 3, 4, 5, 6), 1),
+            Draw("2026002", kotlinx.datetime.LocalDate.parse("2026-01-02"), listOf(1, 2, 3, 7, 8, 9), 2),
+        )
+        val vm = reactiveVm(repo)
+        vm.toggleRed(7)
+        backgroundScope.launch { vm.fingerprint.collect { } }
+        advanceUntilIdle()
+        assertEquals(2, vm.fingerprint.value!!.draws)
+
+        repo.state.value += Draw(
+            "2026003",
+            kotlinx.datetime.LocalDate.parse("2026-01-03"),
+            listOf(7, 10, 11, 12, 13, 14),
+            3,
+        )
+        advanceUntilIdle()
+        // 指纹（以及 statuses/summaries/ledger/histories/stats 等同源派生流）都基于共享的
+        // draws 流，新数据一到即重算——指纹是最直接可断言的一个
+        assertEquals(3, vm.fingerprint.value!!.draws)
+    }
 
     @Test
     fun `选号草稿会持久化并按存储恢复`() {

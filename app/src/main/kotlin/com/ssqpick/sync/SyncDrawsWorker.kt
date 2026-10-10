@@ -14,7 +14,7 @@ import androidx.work.WorkerParameters
 import com.ssqpick.rules.outcomeOf
 import com.ssqpick.store.DrawRepository
 import com.ssqpick.store.PurchaseRepository
-import com.ssqpick.store.SettingsStore
+import com.ssqpick.store.SettingsStorage
 import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.flow.first
@@ -36,7 +36,7 @@ class SyncDrawsWorker(
     private val drawRepository: DrawRepository,
     private val ticketRepository: TicketRepository,
     private val purchaseRepository: PurchaseRepository,
-    private val settingsStore: SettingsStore,
+    private val settingsStore: SettingsStorage,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = when (val r = drawRepository.syncFromOfficial()) {
@@ -122,7 +122,7 @@ class SsqWorkerFactory(
     private val drawRepository: DrawRepository,
     private val ticketRepository: TicketRepository,
     private val purchaseRepository: PurchaseRepository,
-    private val settingsStore: SettingsStore,
+    private val settingsStore: SettingsStorage,
 ) : WorkerFactory() {
     override fun createWorker(
         appContext: Context,
