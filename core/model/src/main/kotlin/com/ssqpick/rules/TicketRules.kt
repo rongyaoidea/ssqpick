@@ -3,7 +3,11 @@ package com.ssqpick.rules
 import com.ssqpick.model.Bet
 import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
+import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 /**
  * 双色球规则的全部领域逻辑：校验、注数、复式展开、对奖。
@@ -283,4 +287,34 @@ object TicketRules {
         }
         return r
     }
+
+    // ---------------------------------------------------------------- 存票状态
+
+    /**
+     * 一张存票相对**最新一期**的状态。
+     *
+     * 未开奖有两种情况：本地还没有任何开奖，或票是最新一期之后存的
+     * （它的号码还没被摇过）。其余按最新一期实算：有奖就是中奖。
+     */
+    fun statusOf(ticket: Ticket, newest: Draw?): TicketStatus {
+        if (newest == null) return TicketStatus.NotDrawn
+        val created = Instant.fromEpochMilliseconds(ticket.createdAtEpochMs)
+            .toLocalDateTime(TimeZone.currentSystemDefault()).date
+        if (created > newest.date) return TicketStatus.NotDrawn
+        val (amount, breakdown) = evaluate(ticket.draft, newest)
+        // 按"有没有奖级"而不是"有没有金额"判定：一二等奖是浮动奖，
+        // 没有公告实付额时金额为 0，但奖级本身是中了的
+        return if (breakdown.isNotEmpty()) {
+            TicketStatus.Won(amount, breakdown.keys.maxByOrNull { it.rank })
+        } else {
+            TicketStatus.Missed
+        }
+    }
+}
+
+/** 存票相对最新一期的状态：未开奖 / 未中奖 / 中奖金额。 */
+sealed interface TicketStatus {
+    data object NotDrawn : TicketStatus
+    data object Missed : TicketStatus
+    data class Won(val amountYuan: Long, val topTier: PrizeTier?) : TicketStatus
 }

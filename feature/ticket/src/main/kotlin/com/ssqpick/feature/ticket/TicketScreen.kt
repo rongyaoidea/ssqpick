@@ -42,6 +42,7 @@ import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.ShapeStats
 import com.ssqpick.rules.TicketRules
+import com.ssqpick.rules.TicketStatus
 import com.ssqpick.rules.theoreticalBlueHitRate
 import com.ssqpick.rules.theoreticalRedDistribution
 
@@ -64,6 +65,7 @@ fun TicketScreen(
     val shape by viewModel.shape.collectAsStateWithLifecycle()
     val bt by viewModel.backtest.collectAsStateWithLifecycle()
     val histories by viewModel.histories.collectAsStateWithLifecycle()
+    val statuses by viewModel.statuses.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = modifier
@@ -125,6 +127,7 @@ fun TicketScreen(
                     TicketRow(
                         ticket = ticket,
                         history = histories[ticket.id],
+                        status = statuses[ticket.id],
                         onDelete = { viewModel.delete(ticket) },
                     )
                     Spacer(Modifier.height(12.dp))
@@ -519,6 +522,28 @@ private fun DraftCard(
     }
 }
 
+/** 存票相对最新一期的状态徽标：数据没到之前不占位。 */
+@Composable
+private fun StatusChip(status: TicketStatus?) {
+    when (status) {
+        null -> Unit
+
+        TicketStatus.NotDrawn -> SketchChip(label = "未开奖", seed = "st-notdrawn", fill = null)
+
+        TicketStatus.Missed -> SketchChip(label = "未中奖", seed = "st-missed", fill = null)
+
+        is TicketStatus.Won -> SketchChip(
+            // 一二等奖无公告时金额为 0：只报奖级，不编金额
+            label = if (status.amountYuan > 0) {
+                "${status.topTier?.label} · %,d 元".format(status.amountYuan)
+            } else {
+                status.topTier?.label ?: "中奖"
+            },
+            seed = "st-won-${status.topTier}",
+        )
+    }
+}
+
 @Composable
 private fun SectionLabel(text: String, count: String) {
     Row(
@@ -631,6 +656,7 @@ private fun NumberGrid(
 private fun TicketRow(
     ticket: com.ssqpick.model.Ticket,
     history: HistoryRecord?,
+    status: TicketStatus?,
     onDelete: () -> Unit,
 ) {
     SketchCard(seed = "ticket-${ticket.id}", tilt = if (ticket.id % 2L == 0L) 0.25f else -0.25f) {
@@ -664,6 +690,7 @@ private fun TicketRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = SketchPalette.InkSoft,
             )
+            StatusChip(status)
         }
         Spacer(Modifier.height(8.dp))
         history?.let { h ->

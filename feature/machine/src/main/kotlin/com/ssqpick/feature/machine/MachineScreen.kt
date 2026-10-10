@@ -27,6 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,6 +43,7 @@ import com.ssqpick.designsystem.sketch.SketchPalette
 import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.sketch.sketchBox
 import com.ssqpick.designsystem.theme.SsqDimens
+import com.ssqpick.model.Bet
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.OddsInfo
 
@@ -96,10 +100,15 @@ fun MachineScreen(
             Spacer(Modifier.height(16.dp))
             ActionBar(
                 machine = m,
-                saved = ui.saved,
+                ui = ui,
                 onStart = viewModel::start,
                 onReset = viewModel::reset,
                 onSave = viewModel::save,
+                onTogglePicker = viewModel::togglePicker,
+                onToggleBet = viewModel::toggleBet,
+                onSelectAllBets = viewModel::selectAllBets,
+                onClearBetSelection = viewModel::clearBetSelection,
+                onSaveSelected = viewModel::saveSelected,
             )
 
             ui.saveMessage?.let {
@@ -185,15 +194,112 @@ private fun FlowRowScope.BallSlots(
     }
 }
 
+/** 逐注挑选：勾选单注保存，每注存成独立单式票。 */
+@Composable
+private fun PickerPanel(
+    ui: DrawUiState,
+    onToggleBet: (Bet) -> Unit,
+    onSelectAllBets: () -> Unit,
+    onClearBetSelection: () -> Unit,
+    onSaveSelected: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "逐注保存（共 ${ui.totalBets} 注）",
+            style = MaterialTheme.typography.titleSmall,
+            color = SketchPalette.Ink,
+        )
+        if (ui.totalBets > ui.pickedBets.size) {
+            Text(
+                "注数太多，只展示前 ${ui.pickedBets.size} 注；要全存用上面的“保存这注”。",
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.InkSoft,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MiniButton("全选", seed = "pick-all", onClick = onSelectAllBets, modifier = Modifier.weight(1f))
+            MiniButton("清空", seed = "pick-none", onClick = onClearBetSelection, modifier = Modifier.weight(1f))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ui.pickedBets.forEachIndexed { index, bet ->
+                BetPickRow(
+                    bet = bet,
+                    selected = bet in ui.selectedBets,
+                    seed = "pick-$index",
+                    onToggle = { onToggleBet(bet) },
+                )
+            }
+        }
+        SketchButton(
+            label = "保存选中（${ui.selectedBets.size}）",
+            onClick = onSaveSelected,
+            enabled = ui.selectedBets.isNotEmpty(),
+            seed = "save-selected",
+            tilt = -0.3f,
+        )
+    }
+}
+
+@Composable
+private fun MiniButton(label: String, seed: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .sketchBox(seed = seed, filled = false, onClick = onClick)
+            .padding(vertical = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = SketchPalette.InkSoft)
+    }
+}
+
+@Composable
+private fun BetPickRow(bet: Bet, selected: Boolean, seed: String, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Checkbox, onClick = onToggle)
+            .semantics(mergeDescendants = true) {
+                stateDescription = if (selected) "已选" else "未选"
+            }
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .sketchBox(seed = seed, filled = selected, corner = 8.dp, onClick = null),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Text("✓", style = MaterialTheme.typography.labelMedium, color = SketchPalette.Paper)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            bet.red.forEach { NumberBall(it, isBlue = false, size = SsqDimens.ballSizeSmall) }
+        }
+        Text("+", style = MaterialTheme.typography.titleSmall, color = SketchPalette.InkSoft)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            bet.blues.forEach { NumberBall(it, isBlue = true, size = SsqDimens.ballSizeSmall) }
+        }
+    }
+}
+
 /** 主操作区。按钮文案随状态变化，而不是一个按钮配三种不可见的禁用理由。 */
 @Composable
 private fun ActionBar(
     machine: MachineUiState,
-    saved: Boolean,
+    ui: DrawUiState,
     onStart: () -> Unit,
     onReset: () -> Unit,
     onSave: () -> Unit,
+    onTogglePicker: () -> Unit,
+    onToggleBet: (Bet) -> Unit,
+    onSelectAllBets: () -> Unit,
+    onClearBetSelection: () -> Unit,
+    onSaveSelected: () -> Unit,
 ) {
+    val saved = ui.saved
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         when {
             machine.isComplete -> {
@@ -204,6 +310,17 @@ private fun ActionBar(
                     seed = "save",
                     tilt = -0.3f,
                 )
+                // 复式一次多注：整单太粗时拆成单注勾选
+                if (machine.betCount > 1) {
+                    SketchButton(
+                        label = if (ui.pickerOpen) "收起挑选" else "逐注挑选",
+                        onClick = onTogglePicker,
+                        enabled = !saved,
+                        filled = false,
+                        seed = "picker",
+                        tilt = 0.3f,
+                    )
+                }
                 SketchButton(
                     label = "重新摇",
                     onClick = onReset,
@@ -211,6 +328,15 @@ private fun ActionBar(
                     seed = "reset",
                     tilt = 0.4f,
                 )
+                if (ui.pickerOpen) {
+                    PickerPanel(
+                        ui = ui,
+                        onToggleBet = onToggleBet,
+                        onSelectAllBets = onSelectAllBets,
+                        onClearBetSelection = onClearBetSelection,
+                        onSaveSelected = onSaveSelected,
+                    )
+                }
             }
 
             machine.isRunning -> {

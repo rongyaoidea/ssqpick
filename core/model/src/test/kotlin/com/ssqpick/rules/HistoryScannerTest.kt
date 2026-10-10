@@ -125,4 +125,21 @@ class NumberGeneratorTest {
         assertEquals(emptyList<Int>(), NumberGenerator.sample(33, 0))
         assertEquals((1..33).toList(), NumberGenerator.sample(33, 33))
     }
+
+    @Test
+    fun `sampleFrom无放回且不出池`() {
+        val pool = (1..33).filter { it !in setOf(1, 2, 3) }
+        repeat(50) {
+            val s = NumberGenerator.sampleFrom(pool, 6)
+            assertEquals(6, s.toSet().size)
+            assertTrue(s.all { it in pool })
+        }
+    }
+
+    @Test
+    fun `sampleFrom池不够截断为空`() {
+        assertTrue(NumberGenerator.sampleFrom(emptyList(), 3).isEmpty())
+        assertEquals(2, NumberGenerator.sampleFrom(listOf(7, 8), 5).size)
+        assertTrue(NumberGenerator.sampleFrom(listOf(7, 8), 0).isEmpty())
+    }
 }

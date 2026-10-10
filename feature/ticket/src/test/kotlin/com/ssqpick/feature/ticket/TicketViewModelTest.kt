@@ -119,4 +119,56 @@ class TicketViewModelTest {
         // 胆1 + 拖7 = C(7,5) = 21
         assertEquals(21L, ui.draft.betCount)
     }
+
+    @Test
+    fun `机选两次不累计`() {
+        val vm = vm()
+        vm.randomFill()
+        assertEquals(6, vm.ui.value.draft.redPicked.size)
+        assertEquals(1, vm.ui.value.draft.bluePicked.size)
+        vm.randomFill()
+        assertEquals(6, vm.ui.value.draft.redPicked.size)
+        assertEquals(1, vm.ui.value.draft.bluePicked.size)
+        assertTrue(vm.ui.value.isValid)
+    }
+
+    @Test
+    fun `机选保留手选只补缺`() {
+        val vm = vm()
+        vm.toggleRed(1)
+        vm.toggleRed(2)
+        vm.toggleRed(3)
+        vm.randomFill()
+        val d = vm.ui.value.draft
+        assertTrue(d.redPicked.containsAll(setOf(1, 2, 3)))
+        assertEquals(6, d.redPicked.size)
+        assertEquals(1, d.bluePicked.size)
+        assertTrue(vm.ui.value.isValid)
+    }
+
+    @Test
+    fun `手选凑满后机选不动`() {
+        val vm = vm()
+        (1..6).forEach { vm.toggleRed(it) }
+        vm.toggleBlue(1)
+        val before = vm.ui.value.draft
+        vm.randomFill()
+        assertEquals(before, vm.ui.value.draft)
+    }
+
+    @Test
+    fun `手碰过机选号就整组归手选`() {
+        val vm = vm()
+        vm.randomFill()
+        val before = vm.ui.value.draft.redPicked
+        assertEquals(6, before.size)
+        val victim = before.first()
+        vm.toggleRed(victim) // 亲手取消一个：剩下 5 个转手选
+        val kept = vm.ui.value.draft.redPicked
+        assertEquals(5, kept.size)
+        vm.randomFill() // 只补 1 个新的，之前留下的都在
+        val d = vm.ui.value.draft
+        assertEquals(6, d.redPicked.size)
+        assertTrue(d.redPicked.containsAll(kept))
+    }
 }

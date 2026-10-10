@@ -8,9 +8,11 @@ import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.DraftBacktest
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
+import com.ssqpick.rules.NumberGenerator
 import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.ShapeStats
 import com.ssqpick.rules.TicketRules
+import com.ssqpick.rules.TicketStatus
 import com.ssqpick.rules.computeShape
 import com.ssqpick.rules.computeStats
 import com.ssqpick.store.DrawRepository
@@ -35,6 +37,9 @@ data class TicketUiState(
     val boldMode: Boolean = false,
     /** 蓝区取号模式。 */
     val blueBoldMode: Boolean = false,
+    /** 机选填的号码：再点机选整体替换，手选的不动。 */
+    val autoReds: Set<Int> = emptySet(),
+    val autoBlues: Set<Int> = emptySet(),
     val tickets: List<Ticket> = emptyList(),
     val syncMessage: String? = null,
     val drawCount: Long = 0L,
@@ -77,6 +82,13 @@ class TicketViewModel(
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** 每张存票相对最新一期的状态：未开奖 / 未中奖 / 中奖。 */
+    val statuses: StateFlow<Map<Long, TicketStatus>> =
+        combine(tickets, drawRepository.observeNewest()) { ts, newest ->
+            ts.associate { it.id to TicketRules.statusOf(it, newest) }
+        }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     /** 每张存票的历史最佳：库或票变化时重算。 */
     val histories: StateFlow<Map<Long, HistoryRecord>> =
         combine(tickets, drawRepository.observeAll()) { ts, draws ->
@@ -101,8 +113,12 @@ class TicketViewModel(
     /**
      * 红球点选。两种模式互相搬运、互不丢号：在拖码模式点胆码球，
      * 是把它"降级"为拖码而不是删掉，反之亦然。
+     *
+     * 手一碰，这组红号就整组归手选（autoReds 清空）：否则下次机选
+     * 会把你刚亲手留下的号也重摇掉。
      */
     fun toggleRed(number: Int) {
+        _ui.value = _ui.value.copy(autoReds = emptySet())
         val d = _ui.value.draft
         if (_ui.value.boldMode) {
             toggleRedBold(number)
@@ -118,6 +134,7 @@ class TicketViewModel(
     }
 
     fun toggleBlue(number: Int) {
+        _ui.value = _ui.value.copy(autoBlues = emptySet())
         val d = _ui.value.draft
         if (_ui.value.blueBoldMode) {
             toggleBlueBold(number)
@@ -172,20 +189,34 @@ class TicketViewModel(
     }
 
     fun clear() {
-        _ui.value = _ui.value.copy(draft = TicketDraft())
+        _ui.value = _ui.value.copy(draft = TicketDraft(), autoReds = emptySet(), autoBlues = emptySet())
     }
 
-    /** 随机机选一注（不覆盖手选）。 */
+    /**
+     * 机选：只补齐缺的部分，替换上次机选填的号，手选的不动。
+     *
+     * 点一次出一组随机；再点是全新的一组，不会越点越多。
+     * 手选已凑满时什么都不做——总不能把人选好的票再撑爆。
+     */
     fun randomFill() {
-        val mode = _ui.value.draft
-        if (mode.redPool.size >= 20) return
-        val reds = com.ssqpick.rules.NumberGenerator.sample(33, 6).toSet() - mode.redPool
-        val blues = com.ssqpick.rules.NumberGenerator.sample(16, 1).toSet() - mode.bluePool
-        _ui.value = _ui.value.copy(
-            draft = mode.copy(
-                redPicked = mode.redPicked + reds,
-                bluePicked = mode.bluePicked + blues,
+        val state = _ui.value
+        val d = state.draft
+        val handPicked = d.redPicked - state.autoReds
+        val handBluePool = d.bluePool - state.autoBlues
+        val redNeed = (TicketRules.RED_PICK - d.redBold.size - handPicked.size).coerceAtLeast(0)
+        val blueNeed = if (handBluePool.isEmpty()) 1 else 0
+        if (redNeed == 0 && blueNeed == 0) return
+        val redAvail = (1..TicketRules.RED_TOTAL).filter { it !in d.redPool || it in state.autoReds }
+        val blueAvail = (1..TicketRules.BLUE_TOTAL).filter { it !in d.bluePool || it in state.autoBlues }
+        val reds = NumberGenerator.sampleFrom(redAvail, redNeed).toSet()
+        val blues = NumberGenerator.sampleFrom(blueAvail, blueNeed).toSet()
+        _ui.value = state.copy(
+            draft = d.copy(
+                redPicked = handPicked + reds,
+                bluePicked = (d.bluePicked - state.autoBlues) + blues,
             ),
+            autoReds = reds,
+            autoBlues = blues,
         )
     }
 
@@ -194,7 +225,7 @@ class TicketViewModel(
         if (!TicketRules.validate(d).isValid) return
         viewModelScope.launch {
             ticketRepository.save(d, label)
-            _ui.value = _ui.value.copy(draft = TicketDraft())
+            _ui.value = _ui.value.copy(draft = TicketDraft(), autoReds = emptySet(), autoBlues = emptySet())
         }
     }
 

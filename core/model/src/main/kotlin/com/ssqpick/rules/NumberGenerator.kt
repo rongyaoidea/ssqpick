@@ -32,4 +32,23 @@ object NumberGenerator {
         pool.sort(0, count)
         return pool.take(count)
     }
+
+    /**
+     * 从给定候选池中无放回均匀抽取 [count] 个。
+     *
+     * 机选补缺用：候选池是"手选剩下的空位"，要多少补多少。
+     * 池不够时截断（能补几个补几个），不断言——调用方按校验信息展示即可。
+     */
+    fun sampleFrom(pool: List<Int>, count: Int): List<Int> {
+        val k = count.coerceIn(0, pool.size)
+        if (k == 0) return emptyList()
+        val idx = pool.indices.toMutableList()
+        for (i in 0 until k) {
+            val j = i + random.nextInt(idx.size - i)
+            val tmp = idx[i]
+            idx[i] = idx[j]
+            idx[j] = tmp
+        }
+        return idx.take(k).map { pool[it] }
+    }
 }
