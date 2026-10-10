@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -59,6 +58,7 @@ import com.ssqpick.model.Ticket
 import com.ssqpick.rules.DraftBacktest
 import com.ssqpick.rules.DraftFingerprint
 import com.ssqpick.rules.HistoryRecord
+import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.PurchaseLedger
 import com.ssqpick.rules.TicketPurchaseSummary
 import com.ssqpick.rules.TicketRules
@@ -87,6 +87,7 @@ fun TicketScreen(
     val summaries by viewModel.purchaseSummaries.collectAsStateWithLifecycle()
     val ledger by viewModel.ledger.collectAsStateWithLifecycle()
     val fingerprint by viewModel.fingerprint.collectAsStateWithLifecycle()
+    val stats by viewModel.stats.collectAsStateWithLifecycle()
 
     // 第一次记录购买时顺手申请通知权限：后台自动对奖的中奖通知靠它
     val context = LocalContext.current
@@ -129,6 +130,7 @@ fun TicketScreen(
                 Column(Modifier.padding(horizontal = 14.dp)) {
                     DraftCard(
                         ui = ui,
+                        stats = stats,
                         onToggleRed = viewModel::toggleRed,
                         onToggleBlue = viewModel::toggleBlue,
                         onBoldMode = viewModel::setBoldMode,
@@ -454,6 +456,7 @@ private fun BacktestCard(
 @Composable
 private fun DraftCard(
     ui: TicketUiState,
+    stats: NumberStats?,
     onToggleRed: (Int) -> Unit,
     onToggleBlue: (Int) -> Unit,
     onBoldMode: (Boolean) -> Unit,
@@ -463,6 +466,8 @@ private fun DraftCard(
     onSave: () -> Unit,
 ) {
     val draft = ui.draft
+    // 遗漏小字只在有开奖数据时出现；库里空时显示全 0 反而误导
+    val showOmission = (stats?.totalDraws ?: 0) > 0
     SketchCard(seed = "ticket-draft", tilt = -0.3f) {
         Row(
             Modifier.fillMaxWidth(),
@@ -499,11 +504,16 @@ private fun DraftCard(
             selected = draft.redPool,
             bold = draft.redBold,
             onToggle = onToggleRed,
+            omission = if (showOmission) stats?.redOmission else null,
         )
-        if (ui.boldMode || draft.redBold.isNotEmpty()) {
+        val redLegend = buildList {
+            if (showOmission) add("球下小字 = 遗漏期数")
+            if (ui.boldMode || draft.redBold.isNotEmpty()) add("双圈 = 胆码，每注必含")
+        }.joinToString(" · ")
+        if (redLegend.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Text(
-                "双圈 = 胆码，每注必含",
+                redLegend,
                 style = MaterialTheme.typography.labelSmall,
                 color = SketchPalette.InkSoft,
             )
@@ -524,11 +534,16 @@ private fun DraftCard(
             selected = draft.bluePool,
             bold = draft.blueBold,
             onToggle = onToggleBlue,
+            omission = if (showOmission) stats?.blueOmission else null,
         )
-        if (ui.blueBoldMode || draft.blueBold.isNotEmpty()) {
+        val blueLegend = buildList {
+            if (showOmission) add("球下小字 = 遗漏期数")
+            if (ui.blueBoldMode || draft.blueBold.isNotEmpty()) add("双圈 = 胆码，每注必含")
+        }.joinToString(" · ")
+        if (blueLegend.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Text(
-                "双圈 = 胆码，每注必含",
+                blueLegend,
                 style = MaterialTheme.typography.labelSmall,
                 color = SketchPalette.InkSoft,
             )
@@ -662,6 +677,8 @@ private fun NumberGrid(
     onToggle: (Int) -> Unit,
     perRow: Int = 6,
     bold: Set<Int> = emptySet(),
+    /** 号码 → 遗漏期数。开奖数据未同步时为 null，格下不显示小字。 */
+    omission: Map<Int, Int>? = null,
 ) {
     val isBlue = range.last == 16
     val numbers = range.toList()
@@ -672,18 +689,29 @@ private fun NumberGrid(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 row.forEach { n ->
-                    NumberBall(
-                        number = n,
-                        isBlue = isBlue,
-                        size = SsqDimens.ballSizeCompact,
-                        selected = n in selected,
-                        bold = n in bold,
-                        modifier = Modifier
-                            .weight(1f)
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onToggle(n) },
-                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        NumberBall(
+                            number = n,
+                            isBlue = isBlue,
+                            size = SsqDimens.ballSizeCompact,
+                            selected = n in selected,
+                            bold = n in bold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onToggle(n) },
+                        )
+                        if (omission != null) {
+                            Spacer(Modifier.height(1.dp))
+                            Text(
+                                text = "${omission[n] ?: 0}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = SketchPalette.InkFaint,
+                            )
+                        }
+                    }
                 }
                 repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
             }

@@ -11,10 +11,12 @@ import com.ssqpick.rules.DraftFingerprint
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.NumberGenerator
+import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.PurchaseLedger
 import com.ssqpick.rules.TicketPurchaseSummary
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
+import com.ssqpick.rules.computeStats
 import com.ssqpick.rules.fingerprintOf
 import com.ssqpick.rules.ledgerOf
 import com.ssqpick.rules.outcomeOf
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.ssqpick.rules.backtest as runBacktest
@@ -128,6 +131,11 @@ class TicketViewModel(
         }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 号码遗漏：选号格下的小字用。开奖库变化时重算，毫秒级。 */
+    val stats: StateFlow<NumberStats?> = drawRepository.observeAll()
+        .map(::computeStats)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** 每张存票的购买汇总（笔数/投入/奖金/最近一笔）。 */
     val purchaseSummaries: StateFlow<Map<Long, TicketPurchaseSummary>> =
