@@ -40,11 +40,19 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/keystore"
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/keystore/ssqpick-release.jks"
-          # 校验还原出来的密钥库确实可用，避免带着坏密钥跑完整个构建才失败
+          # 两层校验，缺一不可：
+          #   1) 证书可读 —— 只证明 store 密码正确
+          #   2) 私钥可解 —— 必须真正解密私钥才算密钥可用
+          # 早先用 -list 只做了第 1 层，结果带着错的 key 密码跑完了整个构建才失败。
           keytool -list -alias "${{ secrets.KEY_ALIAS }}" \
             -keystore "$RUNNER_TEMP/keystore/ssqpick-release.jks" \
             -storepass "${{ secrets.KEYSTORE_PASSWORD }}" >/dev/null
-          echo "密钥库校验通过"
+          # -certreq 需要访问私钥，key 密码错误会在这里立刻失败
+          keytool -certreq -alias "${{ secrets.KEY_ALIAS }}" \
+            -keystore "$RUNNER_TEMP/keystore/ssqpick-release.jks" \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            -keypass "${{ secrets.KEY_PASSWORD }}" | grep -q "BEGIN CERTIFICATE REQUEST"
+          echo "密钥库与私钥密码均校验通过"
 
       - name: 记录签名证书指纹
         id: cert

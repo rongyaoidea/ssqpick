@@ -28,6 +28,10 @@ SHA-256     68:A9:7A:B2:CE:65:74:60:07:A2:E0:B4:40:C3:8E:04:FD:D4:51:51:43:79:10
 | release 密钥库 | GitHub Secrets `KEYSTORE_BASE64`（base64 编码） | 是，**绝不入库** |
 | release 密码 | GitHub Secrets `KEYSTORE_PASSWORD` / `KEY_PASSWORD` | 是，**绝不入库** |
 | alias | GitHub Secrets `KEY_ALIAS` | 否 |
+
+> **注意**：密钥库是 PKCS12 格式，**PKCS12 不支持 store 密码与 key 密码不同**，
+> `keytool` 遇到不同的 `-keypass` 只会打一句 Warning 然后忽略它。
+> 所以 `KEY_PASSWORD` 与 `KEYSTORE_PASSWORD` 必须填成同一个值。
 | debug 密钥库 | 仓库内 `app/debug.keystore` | 否（Android 公知的默认凭证） |
 
 Release 构建时由 `app/build.gradle.kts` 读取环境变量 `KEYSTORE_FILE` /
