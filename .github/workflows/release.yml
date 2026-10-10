@@ -51,7 +51,7 @@ jobs:
           keytool -certreq -alias "${{ secrets.KEY_ALIAS }}" \
             -keystore "$RUNNER_TEMP/keystore/ssqpick-release.jks" \
             -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
-            -keypass "${{ secrets.KEY_PASSWORD }}" | grep -q "BEGIN CERTIFICATE REQUEST"
+            -keypass "${{ secrets.KEY_PASSWORD }}" | grep -q "BEGIN NEW CERTIFICATE REQUEST"
           echo "密钥库与私钥密码均校验通过"
 
       - name: 记录签名证书指纹
