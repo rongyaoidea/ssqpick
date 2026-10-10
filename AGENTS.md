@@ -3,7 +3,7 @@
 ## 构建与测试
 
 ```bash
-./gradlew :core:model:test :feature:machine:testDebugUnitTest :feature:ticket:testDebugUnitTest :feature:data:testDebugUnitTest   # 单元测试
+./gradlew :core:model:test :core:store:testDebugUnitTest :feature:machine:testDebugUnitTest :feature:ticket:testDebugUnitTest :feature:data:testDebugUnitTest   # 单元测试
 ./gradlew compileDebugKotlin                                    # 全模块 Kotlin 编译
 ./gradlew spotlessCheck                                         # ktlint 格式检查
 ./gradlew assembleDebug                                         # 完整 APK（见下方限制）

@@ -49,4 +49,6 @@ dependencies {
     implementation(libs.koin.android)
 
     testImplementation(libs.junit)
+    testImplementation(libs.sqldelight.sqlite.driver)
+    testImplementation(libs.ktor.client.mock)
 }
