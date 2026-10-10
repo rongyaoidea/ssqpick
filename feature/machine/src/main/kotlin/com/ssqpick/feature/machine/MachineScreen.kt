@@ -4,20 +4,21 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -47,8 +49,12 @@ import com.ssqpick.designsystem.component.InfoChip
 import com.ssqpick.designsystem.component.ScreenColumn
 import com.ssqpick.designsystem.component.SsqCard
 import com.ssqpick.designsystem.theme.SsqDimens
+import com.ssqpick.designsystem.theme.SsqTheme
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.OddsInfo
+
+/** 舞台底色，与渲染器清屏色保持一致。 */
+private val StageInk = Color(0xFF0E1116)
 
 /**
  * 摇号机主屏。
@@ -62,39 +68,51 @@ fun MachineScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
-        ScreenColumn {
-            MachineStage(
-                viewModel = viewModel,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(SsqDimens.stageHeight),
-            )
+    // 3D 舞台**必须**放在滚动容器之外。
+    // GLSurfaceView 继承自 SurfaceView，它的 surface 由系统单独合成，
+    // 不跟随父视图滚动；放进 verticalScroll / LazyColumn 会渲染在错误位置
+    // 甚至完全不显示（实测表现为整块空白）。所以这里固定舞台、只滚动下方内容。
+    Column(modifier = modifier.fillMaxSize()) {
+        MachineStage(
+            viewModel = viewModel,
+            ui = ui,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(SsqDimens.stageHeight),
+        )
 
-            ModeSelector(
-                selected = ui.machine.mode,
-                enabled = !ui.machine.isRunning,
-                onSelect = viewModel::selectMode,
-            )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            ScreenColumn {
+                ModeSelector(
+                    selected = ui.machine.mode,
+                    enabled = !ui.machine.isRunning,
+                    onSelect = viewModel::selectMode,
+                )
 
-            ResultPanel(ui = ui, onSave = viewModel::save, onReset = viewModel::reset)
+                ResultPanel(ui = ui, onSave = viewModel::save, onReset = viewModel::reset)
 
-            HistoryPanel(ui.history)
+                HistoryPanel(ui.history)
+            }
         }
     }
 }
 
 /**
- * 3D 舞台。作为视觉焦点，外层加了一圈内描边和圆角，
- * 让 GL 视图和周边 UI 明确分层而不是裸贴一块黑。
+ * 3D 舞台。作为视觉焦点，外层加圆角与深色底。
+ *
+ * 两处容易踩的坑：
+ * 1. `onResume()` 只在生命周期**状态切换**时回调。合成开始时通常已经 RESUMED，
+ *    监听器不会重放事件，所以必须显式补一次，否则渲染线程永远不会启动。
+ * 2. SurfaceView 不能放在可滚动容器里（见 [MachineScreen] 注释）。
  */
 @Composable
 private fun MachineStage(
     viewModel: MachineViewModel,
+    ui: DrawUiState,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -110,21 +128,50 @@ private fun MachineStage(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+
+        // 合成那一刻生命周期往往已处于 RESUMED，observer 不会再收到 ON_RESUME，
+        // 这里主动补上，GLSurfaceView 才会真正开始渲染。
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            view.onResume()
+        }
+
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             view.onPause()
         }
     }
 
+    // 舞台底色固定用深色：与 GL 的清屏色（0.055, 0.063, 0.086）一致，
+    // 浅色主题下也能一眼看出舞台的边界，摇出的球也更醒目。
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.background),
+            .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
+            .background(StageInk),
     ) {
         AndroidView(
             factory = { view },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // GL 失败时给出明确提示。最怕的是"一片空白"——用户无法区分是没渲染、
+        // 是设备不支持、还是代码错了。
+        ui.machine.glError?.let { msg ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "3D 渲染初始化失败：" + msg +
+                        "选号功能仍可正常使用，只是缺少摇号动画。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(24.dp),
+                )
+            }
+        }
     }
 }
 
@@ -141,13 +188,18 @@ private fun ModeSelector(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             DrawMode.entries.forEach { mode ->
                 val isSelected = mode == selected
-                val border by animateColorAsState(
-                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                val border by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant
+                    },
                     label = "modeBorder",
                 )
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .height(52.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(
                             if (isSelected) {
@@ -187,14 +239,9 @@ private fun ResultPanel(
     val m = ui.machine
     SsqCard(
         title = "开奖结果",
-        trailing = {
-            InfoChip("${m.mode.label} · ${m.betCount} 注 / ${m.priceYuan} 元")
-        },
+        trailing = { InfoChip("${m.mode.label} · ${m.betCount} 注 / ${m.priceYuan} 元") },
     ) {
-        AnimatedVisibility(
-            visible = m.isRunning,
-            enter = fadeIn(tween(160)),
-        ) {
+        AnimatedVisibility(visible = m.isRunning, enter = fadeIn(tween(160))) {
             LinearProgressIndicator(
                 progress = { progressOf(m) },
                 modifier = Modifier.fillMaxWidth(),
@@ -233,7 +280,7 @@ private fun ResultPanel(
 
         Spacer(Modifier.height(4.dp))
 
-        // 只有摇完才允许保存，主按钮明确表达状态
+        // 主按钮文案随状态变化，比"一个按钮配三种不可见的禁用理由"清楚
         Button(
             onClick = onSave,
             enabled = m.isComplete && !ui.saved,
@@ -304,7 +351,11 @@ private fun progressOf(m: MachineUiState): Float = when (m.phase) {
     MachineUiState.Phase.RED_MIXING, MachineUiState.Phase.BLUE_MIXING -> 0.5f
 
     MachineUiState.Phase.RED_DRAWING ->
-        if (m.mode.redCount == 0) 0f else m.redEmitted.toFloat() / m.mode.redCount
+        if (m.mode.redCount == 0) {
+            0f
+        } else {
+            m.redEmitted.toFloat() / m.mode.redCount
+        }
 
     MachineUiState.Phase.BLUE_DRAWING -> m.blueEmitted.toFloat() / m.mode.blueCount
 

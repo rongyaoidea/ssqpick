@@ -107,6 +107,6 @@ object SsqDimens {
     val ballSize = 44.dp
     val ballSizeCompact = 34.dp
     val ballSizeSmall = 30.dp
-    val stageHeight = 340.dp
+    val stageHeight = 300.dp
     val cardGap = 12.dp
 }

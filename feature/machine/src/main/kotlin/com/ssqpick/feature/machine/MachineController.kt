@@ -36,6 +36,8 @@ data class MachineUiState(
     val blueNumbers: List<Int> = emptyList(),
     val redEmitted: Int = 0,
     val blueEmitted: Int = 0,
+    /** GL 初始化或渲染失败时的原因；null 表示正常。 */
+    val glError: String? = null,
 ) {
     enum class Phase { IDLE, RED_MIXING, RED_DRAWING, BLUE_MIXING, BLUE_DRAWING, COMPLETE }
 
@@ -110,6 +112,17 @@ class MachineController {
         phaseTimer = 0f
         resetWorlds()
         _state.value = MachineUiState(phase = MachineUiState.Phase.RED_MIXING, mode = mode)
+    }
+
+    /**
+     * GL 初始化失败时的回调。
+     *
+     * 渲染失败（着色器编译不过、纹理上传失败、设备不支持 GLES 3）必须在界面上
+     * 可见，而不是让用户面对一块空白自己猜。这里把错误信息带进 UI 状态。
+     */
+    fun onGlError(error: Throwable) {
+        val msg = error.message ?: error::class.simpleName ?: "未知错误"
+        _state.value = _state.value.copy(glError = msg)
     }
 
     /** 摇完后回到待机，清空结果。 */
