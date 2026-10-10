@@ -3,9 +3,11 @@ package com.ssqpick
 import android.app.Application
 import androidx.work.Configuration
 import com.ssqpick.feature.check.checkModule
+import com.ssqpick.feature.data.featureDataModule
 import com.ssqpick.feature.machine.machineModule
 import com.ssqpick.feature.ticket.ticketModule
 import com.ssqpick.store.dataModule
+import com.ssqpick.sync.PurchaseNotifier
 import com.ssqpick.sync.SsqWorkerFactory
 import com.ssqpick.sync.SyncDrawsWorker
 import org.koin.android.ext.koin.androidContext
@@ -22,18 +24,25 @@ class SsqApplication :
         startKoin {
             androidLogger(if (BuildConfig.DEBUG) Level.ERROR else Level.NONE)
             androidContext(this@SsqApplication)
-            modules(dataModule, machineModule, ticketModule, checkModule)
+            modules(dataModule, machineModule, ticketModule, checkModule, featureDataModule)
         }
+        PurchaseNotifier.ensureChannel(this)
         SyncDrawsWorker.schedule(this)
     }
 
     /**
      * WorkManager 手动初始化：自启动已在 Manifest 里关掉——
      * 它跑在 Application.onCreate 之前，那时 Koin 还没起来，
-     * Factory 会拿不到 DrawRepository。这里保证 Worker 用的是 Koin 单例。
+     * Factory 会拿不到 repository。这里保证 Worker 用的是 Koin 单例。
      */
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
-            .setWorkerFactory(SsqWorkerFactory(GlobalContext.get().get()))
+            .setWorkerFactory(
+                SsqWorkerFactory(
+                    drawRepository = GlobalContext.get().get(),
+                    ticketRepository = GlobalContext.get().get(),
+                    purchaseRepository = GlobalContext.get().get(),
+                ),
+            )
             .build()
 }

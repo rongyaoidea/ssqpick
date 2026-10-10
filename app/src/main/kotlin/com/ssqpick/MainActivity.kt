@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -39,6 +40,8 @@ import com.ssqpick.designsystem.sketch.SketchPalette
 import com.ssqpick.designsystem.theme.SsqTheme
 import com.ssqpick.feature.check.CheckScreen
 import com.ssqpick.feature.check.CheckViewModel
+import com.ssqpick.feature.data.DataScreen
+import com.ssqpick.feature.data.DataViewModel
 import com.ssqpick.feature.machine.MachineScreen
 import com.ssqpick.feature.machine.MachineViewModel
 import com.ssqpick.feature.ticket.TicketScreen
@@ -50,6 +53,7 @@ private enum class TopTab(val route: String, val label: String, val title: Strin
     MACHINE("machine", "摇号", "摇号机"),
     TICKET("ticket", "选号", "选号"),
     CHECK("check", "对奖", "对奖"),
+    DATA("data", "数据", "数据"),
 }
 
 class MainActivity : ComponentActivity() {
@@ -102,6 +106,7 @@ private fun AppScaffold() {
                                     TopTab.MACHINE -> Icons.Filled.Casino
                                     TopTab.TICKET -> Icons.Filled.FormatListNumbered
                                     TopTab.CHECK -> Icons.Filled.EmojiEvents
+                                    TopTab.DATA -> Icons.Filled.Insights
                                 },
                                 contentDescription = tab.label,
                             )
@@ -128,6 +133,10 @@ private fun AppScaffold() {
             composable(TopTab.CHECK.route) {
                 val vm: CheckViewModel = koinViewModel()
                 CheckScreen(viewModel = vm)
+            }
+            composable(TopTab.DATA.route) {
+                val vm: DataViewModel = koinViewModel()
+                DataScreen(viewModel = vm)
             }
         }
     }

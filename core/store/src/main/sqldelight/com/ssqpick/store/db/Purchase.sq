@@ -1,0 +1,30 @@
+-- 购买记录：同一张票可以买多笔（守号逐期买）。
+-- settled 是中奖通知去重用的结算标记，UI 不读。
+CREATE TABLE purchase (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER NOT NULL,
+    purchased_at INTEGER NOT NULL,
+    cost_yuan INTEGER NOT NULL,
+    settled INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX purchase_ticket ON purchase (ticket_id);
+
+insertPurchase:
+INSERT INTO purchase (ticket_id, purchased_at, cost_yuan, settled)
+VALUES (?, ?, ?, 0);
+
+markPurchaseSettled:
+UPDATE purchase SET settled = 1 WHERE id = ?;
+
+deletePurchase:
+DELETE FROM purchase WHERE id = ?;
+
+deletePurchasesForTicket:
+DELETE FROM purchase WHERE ticket_id = ?;
+
+selectAllPurchases:
+SELECT * FROM purchase ORDER BY purchased_at DESC;
+
+selectUnsettledPurchases:
+SELECT * FROM purchase WHERE settled = 0 ORDER BY purchased_at ASC;

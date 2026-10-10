@@ -39,6 +39,7 @@ import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchChip
 import com.ssqpick.designsystem.sketch.SketchDivider
 import com.ssqpick.designsystem.sketch.SketchMetaRow
+import com.ssqpick.designsystem.sketch.SketchMiniButton
 import com.ssqpick.designsystem.sketch.SketchPalette
 import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.sketch.sketchBox
@@ -217,8 +218,8 @@ private fun PickerPanel(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            MiniButton("全选", seed = "pick-all", onClick = onSelectAllBets, modifier = Modifier.weight(1f))
-            MiniButton("清空", seed = "pick-none", onClick = onClearBetSelection, modifier = Modifier.weight(1f))
+            SketchMiniButton("全选", seed = "pick-all", onClick = onSelectAllBets, modifier = Modifier.weight(1f))
+            SketchMiniButton("清空", seed = "pick-none", onClick = onClearBetSelection, modifier = Modifier.weight(1f))
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             ui.pickedBets.forEachIndexed { index, bet ->
@@ -237,18 +238,6 @@ private fun PickerPanel(
             seed = "save-selected",
             tilt = -0.3f,
         )
-    }
-}
-
-@Composable
-private fun MiniButton(label: String, seed: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .sketchBox(seed = seed, filled = false, onClick = onClick)
-            .padding(vertical = 7.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = SketchPalette.InkSoft)
     }
 }
 

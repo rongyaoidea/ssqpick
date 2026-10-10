@@ -9,11 +9,9 @@ val dataModule = module {
     single { defaultClient() }
     single { CwlApi(get()) }
 
-    single {
-        val factory = DatabaseFactory(context = get(), api = get())
-        factory.draws to factory.tickets
-    }
+    single { DatabaseFactory(context = get(), api = get()) }
 
-    single<DrawRepository> { get<Pair<DrawRepository, TicketRepository>>().first }
-    single<TicketRepository> { get<Pair<DrawRepository, TicketRepository>>().second }
+    single<DrawRepository> { get<DatabaseFactory>().draws }
+    single<TicketRepository> { get<DatabaseFactory>().tickets }
+    single<PurchaseRepository> { get<DatabaseFactory>().purchases }
 }

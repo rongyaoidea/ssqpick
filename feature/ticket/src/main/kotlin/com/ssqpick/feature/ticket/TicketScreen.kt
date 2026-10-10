@@ -1,7 +1,13 @@
 package com.ssqpick.feature.ticket
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,34 +19,46 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssqpick.designsystem.component.NumberBall
 import com.ssqpick.designsystem.sketch.SketchBarRow
 import com.ssqpick.designsystem.sketch.SketchButton
 import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchChip
+import com.ssqpick.designsystem.sketch.SketchLineChart
 import com.ssqpick.designsystem.sketch.SketchMetaRow
+import com.ssqpick.designsystem.sketch.SketchMiniButton
 import com.ssqpick.designsystem.sketch.SketchPalette
 import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.sketch.sketchBox
 import com.ssqpick.designsystem.theme.SsqDimens
+import com.ssqpick.model.PrizeTier
+import com.ssqpick.model.Ticket
 import com.ssqpick.rules.DraftBacktest
 import com.ssqpick.rules.HistoryRecord
-import com.ssqpick.rules.NumberStats
-import com.ssqpick.rules.ShapeStats
+import com.ssqpick.rules.PurchaseLedger
+import com.ssqpick.rules.TicketPurchaseSummary
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
 import com.ssqpick.rules.theoreticalBlueHitRate
@@ -61,91 +79,136 @@ fun TicketScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val tickets by viewModel.tickets.collectAsStateWithLifecycle()
-    val stats by viewModel.stats.collectAsStateWithLifecycle()
-    val shape by viewModel.shape.collectAsStateWithLifecycle()
     val bt by viewModel.backtest.collectAsStateWithLifecycle()
     val histories by viewModel.histories.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
+    val summaries by viewModel.purchaseSummaries.collectAsStateWithLifecycle()
+    val ledger by viewModel.ledger.collectAsStateWithLifecycle()
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .background(SketchPalette.Canvas),
-        contentPadding = PaddingValues(vertical = 8.dp),
-    ) {
-        item {
-            Column(Modifier.padding(horizontal = 14.dp)) {
-                Spacer(Modifier.height(6.dp))
-                SyncCard(
-                    drawCount = ui.drawCount,
-                    message = ui.syncMessage,
-                    newest = ui.newestDraw,
-                    onSync = viewModel::syncDraws,
-                )
-                Spacer(Modifier.height(14.dp))
-                StatsCard(stats)
-                Spacer(Modifier.height(14.dp))
-                ShapeCard(shape = shape, draft = ui.draft)
-                Spacer(Modifier.height(14.dp))
-            }
+    // 第一次记录购买时顺手申请通知权限：后台自动对奖的中奖通知靠它
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+    val requestNotifyPermission = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
 
-        item {
-            Column(Modifier.padding(horizontal = 14.dp)) {
-                DraftCard(
-                    ui = ui,
-                    onToggleRed = viewModel::toggleRed,
-                    onToggleBlue = viewModel::toggleBlue,
-                    onBoldMode = viewModel::setBoldMode,
-                    onBlueBoldMode = viewModel::setBlueBoldMode,
-                    onClear = viewModel::clear,
-                    onRandom = viewModel::randomFill,
-                    onSave = { viewModel.save() },
-                )
-                Spacer(Modifier.height(14.dp))
-                BacktestCard(bt = bt, draft = ui.draft)
-                Spacer(Modifier.height(14.dp))
-            }
-        }
+    var renameTarget by remember { mutableStateOf<Ticket?>(null) }
 
-        if (tickets.isNotEmpty()) {
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(SketchPalette.Canvas),
+            contentPadding = PaddingValues(vertical = 8.dp),
+        ) {
             item {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SketchSectionTitle("已保存的号码")
-                    SketchChip(label = "${tickets.size} 张", seed = "ticket-count")
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-            items(tickets, key = { it.id }) { ticket ->
                 Column(Modifier.padding(horizontal = 14.dp)) {
-                    TicketRow(
-                        ticket = ticket,
-                        history = histories[ticket.id],
-                        status = statuses[ticket.id],
-                        onDelete = { viewModel.delete(ticket) },
+                    Spacer(Modifier.height(6.dp))
+                    SyncCard(
+                        drawCount = ui.drawCount,
+                        message = ui.syncMessage,
+                        newest = ui.newestDraw,
+                        onSync = viewModel::syncDraws,
                     )
-                    Spacer(Modifier.height(12.dp))
-                }
-            }
-        } else {
-            item {
-                Column(Modifier.padding(horizontal = 14.dp)) {
-                    SketchCard(seed = "ticket-empty", tilt = 0.3f) {
-                        Text(
-                            "还没有保存的号码。摇号或手选后点“保存这注”。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = SketchPalette.InkSoft,
-                        )
-                    }
                     Spacer(Modifier.height(14.dp))
                 }
             }
+
+            item {
+                Column(Modifier.padding(horizontal = 14.dp)) {
+                    DraftCard(
+                        ui = ui,
+                        onToggleRed = viewModel::toggleRed,
+                        onToggleBlue = viewModel::toggleBlue,
+                        onBoldMode = viewModel::setBoldMode,
+                        onBlueBoldMode = viewModel::setBlueBoldMode,
+                        onClear = viewModel::clear,
+                        onRandom = viewModel::randomFill,
+                        onSave = { viewModel.save() },
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    BacktestCard(
+                        bt = bt,
+                        draft = ui.draft,
+                        range = ui.backtestRange,
+                        onRange = viewModel::setBacktestRange,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    PnlCard(ledger)
+                    Spacer(Modifier.height(14.dp))
+                }
+            }
+
+            if (tickets.isNotEmpty()) {
+                item {
+                    Column(Modifier.padding(horizontal = 14.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            SketchSectionTitle("已保存的号码")
+                            SketchChip(label = "${tickets.size} 张", seed = "ticket-count")
+                        }
+                        ui.actionMessage?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = SketchPalette.Ink)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+                items(tickets, key = { it.id }) { ticket ->
+                    Column(Modifier.padding(horizontal = 14.dp)) {
+                        TicketRow(
+                            ticket = ticket,
+                            history = histories[ticket.id],
+                            status = statuses[ticket.id],
+                            summary = summaries[ticket.id],
+                            onRecord = {
+                                viewModel.recordPurchase(ticket)
+                                requestNotifyPermission()
+                            },
+                            onRename = { renameTarget = ticket },
+                            onUndo = { viewModel.undoLastPurchase(ticket) },
+                            onDelete = { viewModel.delete(ticket) },
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+            } else {
+                item {
+                    Column(Modifier.padding(horizontal = 14.dp)) {
+                        SketchCard(seed = "ticket-empty", tilt = 0.3f) {
+                            Text(
+                                "还没有保存的号码。摇号或手选后点“保存这注”。",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = SketchPalette.InkSoft,
+                            )
+                        }
+                        Spacer(Modifier.height(14.dp))
+                    }
+                }
+            }
+        }
+
+        renameTarget?.let { target ->
+            SketchInputDialog(
+                title = "备注号码 #${target.id}",
+                initial = target.label.orEmpty(),
+                onDismiss = { renameTarget = null },
+                onConfirm = { label ->
+                    viewModel.rename(target, label)
+                    renameTarget = null
+                },
+            )
         }
     }
 }
@@ -185,167 +248,14 @@ private fun SyncCard(
     }
 }
 
-/** 冷热参考：热门与久未出的号码，只做历史描述，不做预测。 */
+/** 历史回测：当前草稿在选定窗口上的表现，随选号实时更新，只描述不预测。 */
 @Composable
-private fun StatsCard(stats: NumberStats?) {
-    SketchCard(seed = "ticket-stats", tilt = 0.25f) {
-        SketchSectionTitle("冷热参考")
-        Spacer(Modifier.height(8.dp))
-        if (stats == null || stats.totalDraws == 0) {
-            Text(
-                "同步开奖数据后，这里会统计号码冷热。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = SketchPalette.InkSoft,
-            )
-        } else {
-            StatGroup(
-                label = "热门红球",
-                hint = "近 ${stats.totalDraws} 期出现最多",
-                numbers = stats.hotReds(5),
-                isBlue = false,
-                counts = stats.redFrequency,
-                unit = "次",
-                extra = { n -> "%.1f%%".format((stats.redFrequency[n] ?: 0) * 100.0 / stats.totalDraws) },
-            )
-            Spacer(Modifier.height(8.dp))
-            StatGroup(
-                label = "久未出红球",
-                hint = "遗漏期数最长",
-                numbers = stats.coldReds(5),
-                isBlue = false,
-                counts = stats.redOmission,
-                unit = "期",
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    StatGroup(
-                        label = "热门蓝球",
-                        hint = null,
-                        numbers = stats.hotBlues(3),
-                        isBlue = true,
-                        counts = stats.blueFrequency,
-                        unit = "次",
-                        extra = { n -> "%.1f%%".format((stats.blueFrequency[n] ?: 0) * 100.0 / stats.totalDraws) },
-                    )
-                }
-                Column(Modifier.weight(1f)) {
-                    StatGroup(
-                        label = "久未出蓝球",
-                        hint = null,
-                        numbers = stats.coldBlues(3),
-                        isBlue = true,
-                        counts = stats.blueOmission,
-                        unit = "期",
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "红球理论出场率 18.2% · 蓝球 6.3%。冷热只是历史统计，不提高中奖率。",
-                style = MaterialTheme.typography.bodySmall,
-                color = SketchPalette.InkSoft,
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatGroup(
-    label: String,
-    hint: String?,
-    numbers: List<Int>,
-    isBlue: Boolean,
-    counts: Map<Int, Int>,
-    unit: String,
-    /** 号码下的第二行小字：热门组传出场率，遗漏组不传。 */
-    extra: ((Int) -> String)? = null,
+private fun BacktestCard(
+    bt: DraftBacktest?,
+    draft: com.ssqpick.model.TicketDraft,
+    range: BacktestRange,
+    onRange: (BacktestRange) -> Unit,
 ) {
-    Text(
-        if (hint == null) label else "$label · $hint",
-        style = MaterialTheme.typography.labelSmall,
-        color = SketchPalette.InkSoft,
-    )
-    Spacer(Modifier.height(5.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        numbers.forEach { n ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                NumberBall(n, isBlue = isBlue, size = SsqDimens.ballSizeSmall)
-                Text(
-                    "${counts[n] ?: 0}$unit",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SketchPalette.InkSoft,
-                )
-                extra?.let {
-                    Text(
-                        it(n),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = SketchPalette.InkFaint,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 开奖形态：和值、奇偶、区间、连号，并对照当前草稿（仅单式有唯一形态）。 */
-@Composable
-private fun ShapeCard(shape: ShapeStats?, draft: com.ssqpick.model.TicketDraft) {
-    SketchCard(seed = "ticket-shape", tilt = 0.3f) {
-        SketchSectionTitle("开奖形态")
-        Spacer(Modifier.height(8.dp))
-        if (shape == null || shape.draws == 0) {
-            Text(
-                "同步开奖数据后，这里描述历史开奖的形态。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = SketchPalette.InkSoft,
-            )
-            return@SketchCard
-        }
-        SketchMetaRow(
-            label = "和值",
-            value = "均值 %.0f · 九成在 %d~%d".format(shape.sumMean, shape.sumLow, shape.sumHigh),
-        )
-        SketchMetaRow(label = "奇数", value = "平均 %.1f 个/期".format(shape.oddMean))
-        SketchMetaRow(
-            label = "三区占比",
-            value = shape.zoneShare.joinToString(" / ") { "%.0f%%".format(it * 100) },
-        )
-        SketchMetaRow(label = "含连号", value = "%.0f%% 的期次".format(shape.consecutiveShare * 100))
-        Spacer(Modifier.height(8.dp))
-        val reds = draft.redPool
-        if (draft.redBold.isEmpty() && reds.size == TicketRules.RED_PICK && draft.bluePool.isNotEmpty()) {
-            val sorted = reds.sorted()
-            val zones = sorted.groupBy { (it - 1) / 11 }.mapValues { it.value.size }
-            Text(
-                "当前：和值 ${sorted.sum()} · 奇数 ${sorted.count { it % 2 == 1 }} 个 · " +
-                    "分区 ${zones[0] ?: 0}/${zones[1] ?: 0}/${zones[2] ?: 0} · " +
-                    (if (sorted.zipWithNext().any { (a, b) -> b - a == 1 }) "有连号" else "无连号"),
-                style = MaterialTheme.typography.bodySmall,
-                color = SketchPalette.Ink,
-            )
-        } else {
-            Text(
-                "复式/胆拖不止一组，形态不唯一，只看上面历史。",
-                style = MaterialTheme.typography.bodySmall,
-                color = SketchPalette.InkSoft,
-            )
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "形态描述历史，不改变每期概率。",
-            style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.InkSoft,
-        )
-    }
-}
-
-/** 历史回测：当前草稿在全部历史上的表现，随选号实时更新，只描述不预测。 */
-@Composable
-private fun BacktestCard(bt: DraftBacktest?, draft: com.ssqpick.model.TicketDraft) {
     SketchCard(seed = "ticket-backtest", tilt = -0.25f) {
         Row(
             Modifier.fillMaxWidth(),
@@ -354,10 +264,26 @@ private fun BacktestCard(bt: DraftBacktest?, draft: com.ssqpick.model.TicketDraf
         ) {
             SketchSectionTitle("历史回测")
             if (bt != null && bt.draws > 0) {
-                SketchChip(label = "近 ${bt.draws} 期", seed = "bt-draws")
+                SketchChip(label = "共 ${bt.draws} 期", seed = "bt-draws")
             }
         }
         Spacer(Modifier.height(8.dp))
+        // 窗口切换：全部 / 近100 / 近30。全量是"从首期守到今天"的近似。
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BacktestRange.entries.forEach { r ->
+                SketchMiniButton(
+                    label = r.label,
+                    seed = "bt-range-${r.name}",
+                    onClick = { onRange(r) },
+                    filled = r == range,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
         if (bt == null || bt.totalBetDraws == 0L) {
             Text(
                 "选出合法号码后，这里显示它在历史上的表现。",
@@ -395,6 +321,16 @@ private fun BacktestCard(bt: DraftBacktest?, draft: com.ssqpick.model.TicketDraf
             label = "蓝球命中",
             value = "%.2f%%（理论 %.2f%%）".format(bt.blueRate * 100, blueTheory * 100),
         )
+        if (bt.tierCounts.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "中过的奖级：" + PrizeTier.entries.sortedByDescending { it.rank }
+                    .filter { (bt.tierCounts[it] ?: 0L) > 0L }
+                    .joinToString(" · ") { "${it.label} ${bt.tierCounts[it]} 注" },
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.Ink,
+            )
+        }
         Spacer(Modifier.height(4.dp))
         SketchMetaRow(label = "假装期期都买", value = "投入 %,d 元".format(bt.costYuan))
         SketchMetaRow(
@@ -405,7 +341,7 @@ private fun BacktestCard(bt: DraftBacktest?, draft: com.ssqpick.model.TicketDraf
         SketchMetaRow(label = "回报率", value = "%.1f%%".format(bt.roi * 100))
         Spacer(Modifier.height(6.dp))
         Text(
-            "期望回报为负是数学，不是运气不好。",
+            "期望回报为负是数学，不是运气不好。全部历史 ≈ 从首期守号至今。",
             style = MaterialTheme.typography.bodySmall,
             color = SketchPalette.InkSoft,
         )
@@ -654,12 +590,31 @@ private fun NumberGrid(
 
 @Composable
 private fun TicketRow(
-    ticket: com.ssqpick.model.Ticket,
+    ticket: Ticket,
     history: HistoryRecord?,
     status: TicketStatus?,
+    summary: TicketPurchaseSummary?,
+    onRecord: () -> Unit,
+    onRename: () -> Unit,
+    onUndo: () -> Unit,
     onDelete: () -> Unit,
 ) {
     SketchCard(seed = "ticket-${ticket.id}", tilt = if (ticket.id % 2L == 0L) 0.25f else -0.25f) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                ticket.label ?: "号码 #${ticket.id}",
+                style = MaterialTheme.typography.titleMedium,
+                color = SketchPalette.Ink,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            StatusChip(status)
+        }
+        Spacer(Modifier.height(6.dp))
         // 存票可能是 20 红大复式：一行摆不下会顶出屏幕，换行显示
         FlowRow(
             Modifier.fillMaxWidth(),
@@ -680,20 +635,26 @@ private fun TicketRow(
             }
         }
         Spacer(Modifier.height(8.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Text(
+            "${TicketRules.betCount(ticket.draft)} 注 · ${ticket.draft.kind.label}",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkSoft,
+        )
+        summary?.takeIf { it.count > 0 }?.let { s ->
+            Spacer(Modifier.height(2.dp))
             Text(
-                "${TicketRules.betCount(ticket.draft)} 注 · ${ticket.draft.kind.label}",
+                buildString {
+                    append("已购 ${s.count} 笔")
+                    if (s.pendingCount > 0) append("（待开奖 ${s.pendingCount}）")
+                    append(" · 投入 ${s.costYuan} 元")
+                    if (s.prizeYuan > 0) append(" · 中奖 ${s.prizeYuan} 元")
+                },
                 style = MaterialTheme.typography.labelSmall,
-                color = SketchPalette.InkSoft,
+                color = SketchPalette.Ink,
             )
-            StatusChip(status)
         }
-        Spacer(Modifier.height(8.dp))
         history?.let { h ->
+            Spacer(Modifier.height(2.dp))
             Text(
                 if (h.hasEverWon) {
                     "历史最佳：${h.highestTier?.label} · 第${h.highestTierDrawCode}期"
@@ -703,14 +664,128 @@ private fun TicketRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = SketchPalette.InkSoft,
             )
-            Spacer(Modifier.height(8.dp))
         }
-        SketchButton(
-            label = "删除",
-            onClick = onDelete,
-            filled = false,
-            seed = "ticket-del-${ticket.id}",
-            tilt = 0.3f,
+        Spacer(Modifier.height(10.dp))
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SketchMiniButton(
+                label = "记录购买",
+                seed = "ticket-buy-${ticket.id}",
+                onClick = onRecord,
+                filled = true,
+            )
+            SketchMiniButton(label = "备注", seed = "ticket-label-${ticket.id}", onClick = onRename)
+            if ((summary?.count ?: 0) > 0) {
+                SketchMiniButton(label = "撤销购买", seed = "ticket-undo-${ticket.id}", onClick = onUndo)
+            }
+            SketchMiniButton(label = "删除", seed = "ticket-del-${ticket.id}", onClick = onDelete)
+        }
+    }
+}
+
+/** 我的战绩：记录购买后才有，是真账不是假设。 */
+@Composable
+private fun PnlCard(ledger: PurchaseLedger) {
+    SketchCard(seed = "ticket-pnl", tilt = 0.2f) {
+        SketchSectionTitle("我的战绩")
+        Spacer(Modifier.height(8.dp))
+        if (ledger.count == 0) {
+            Text(
+                "在号码上点“记录购买”，这里会记真实的投入、奖金与累计净收益。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.InkSoft,
+            )
+            return@SketchCard
+        }
+        SketchMetaRow(label = "投入", value = "%,d 元".format(ledger.totalCostYuan))
+        SketchMetaRow(label = "奖金", value = "%,d 元".format(ledger.totalPrizeYuan))
+        SketchMetaRow(
+            label = "净收益",
+            value = "%+,d 元".format(ledger.netYuan),
+            valueColor = if (ledger.netYuan >= 0) SketchPalette.Ink else SketchPalette.RedInk,
         )
+        if (ledger.pendingCount > 0) {
+            SketchMetaRow(label = "待开奖", value = "${ledger.pendingCount} 笔")
+        }
+        Spacer(Modifier.height(6.dp))
+        SketchLineChart(
+            values = ledger.cumulativeNet,
+            baseline = 0f,
+            includeZero = true,
+            seed = "pnl-line",
+        )
+        Text(
+            "累计净收益（奖金 − 投入），按购买时间。按你记录的笔数算的真账。",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+    }
+}
+
+/** 手绘备注弹层：全屏遮罩 + 居中纸片。 */
+@Composable
+private fun SketchInputDialog(
+    title: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.35f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .padding(horizontal = 28.dp)
+                .fillMaxWidth()
+                .imePadding()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                ),
+        ) {
+            SketchCard(seed = "rename-dialog", tilt = 0f) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = SketchPalette.Ink)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    placeholder = { Text("例如：守号-周三") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SketchMiniButton(
+                        label = "取消",
+                        seed = "dlg-cancel",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SketchMiniButton(
+                        label = "保存",
+                        seed = "dlg-ok",
+                        onClick = { onConfirm(text) },
+                        filled = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
     }
 }

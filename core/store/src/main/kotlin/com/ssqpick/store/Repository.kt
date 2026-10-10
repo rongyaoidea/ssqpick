@@ -5,13 +5,16 @@ import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
 import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
+import com.ssqpick.model.Purchase
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
 import com.ssqpick.store.db.DrawQueries
+import com.ssqpick.store.db.PurchaseQueries
 import com.ssqpick.store.db.TicketQueries
 import com.ssqpick.store.mapper.encode
 import com.ssqpick.store.mapper.toDraft
 import com.ssqpick.store.mapper.toDraw
+import com.ssqpick.store.mapper.toPurchase
 import com.ssqpick.store.network.CwlApi
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -115,6 +118,7 @@ interface TicketRepository {
 
 class TicketRepositoryImpl(
     private val ticketQueries: TicketQueries,
+    private val purchaseQueries: PurchaseQueries,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : TicketRepository {
 
@@ -151,16 +155,73 @@ class TicketRepositoryImpl(
     }
 
     override suspend fun delete(id: Long) {
-        withContext(io) { ticketQueries.deleteTicket(id).value }
+        // 票与其购买记录一起删：孤儿购买既没法展示也结不了算
+        withContext(io) {
+            ticketQueries.transaction {
+                purchaseQueries.deletePurchasesForTicket(id)
+                ticketQueries.deleteTicket(id)
+            }
+        }
     }
 
     override suspend fun clear() {
         withContext(io) {
             ticketQueries.transaction {
                 ticketQueries.selectAllTickets().executeAsList().forEach {
+                    purchaseQueries.deletePurchasesForTicket(it.id)
                     ticketQueries.deleteTicket(it.id).value
                 }
             }
         }
+    }
+}
+
+interface PurchaseRepository {
+    fun observeAll(): Flow<List<Purchase>>
+    suspend fun all(): List<Purchase>
+
+    /** 未结算（还没有开奖结果）的购买，后台结算用。 */
+    suspend fun unsettled(): List<Purchase>
+    suspend fun record(ticketId: Long, costYuan: Long)
+    suspend fun settle(ids: List<Long>)
+    suspend fun delete(id: Long)
+}
+
+class PurchaseRepositoryImpl(
+    private val purchaseQueries: PurchaseQueries,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+) : PurchaseRepository {
+
+    override fun observeAll(): Flow<List<Purchase>> = purchaseQueries.selectAllPurchases().asFlow().mapToList(io).map { rows -> rows.map { it.toPurchase() } }
+
+    override suspend fun all(): List<Purchase> = withContext(io) {
+        purchaseQueries.selectAllPurchases().executeAsList().map { it.toPurchase() }
+    }
+
+    override suspend fun unsettled(): List<Purchase> = withContext(io) {
+        purchaseQueries.selectUnsettledPurchases().executeAsList().map { it.toPurchase() }
+    }
+
+    override suspend fun record(ticketId: Long, costYuan: Long) {
+        withContext(io) {
+            purchaseQueries.insertPurchase(
+                ticket_id = ticketId,
+                purchased_at = System.currentTimeMillis(),
+                cost_yuan = costYuan,
+            )
+        }
+    }
+
+    override suspend fun settle(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        withContext(io) {
+            purchaseQueries.transaction {
+                ids.forEach { purchaseQueries.markPurchaseSettled(it) }
+            }
+        }
+    }
+
+    override suspend fun delete(id: Long) {
+        withContext(io) { purchaseQueries.deletePurchase(id) }
     }
 }

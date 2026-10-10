@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
@@ -360,4 +361,95 @@ fun SketchMetaRow(
         Text(label, style = MaterialTheme.typography.bodySmall, color = SketchPalette.InkSoft)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = valueColor)
     }
+}
+
+/** 行内小按钮：多操作并排（记录/备注/删除、全选/清空）用。 */
+@Composable
+fun SketchMiniButton(
+    label: String,
+    seed: Any?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    filled: Boolean = false,
+    enabled: Boolean = true,
+) {
+    Box(
+        modifier = modifier
+            .sketchBox(seed = seed, filled = filled, enabled = enabled, onClick = onClick)
+            .padding(vertical = 7.dp, horizontal = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = when {
+                !enabled -> SketchPalette.InkFaint
+                filled -> SketchPalette.Paper
+                else -> SketchPalette.InkSoft
+            },
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * 手绘折线图：把一串值映射成抖动折线。
+ *
+ * @param baseline 参考线（如 0 或均值）；传了才会画。
+ * @param includeZero 是否把 0 纳入值域——账本折线要看得出"0 以上/以下"。
+ * 每帧的抖动由 seed 决定，重组不会闪。
+ */
+@Composable
+fun SketchLineChart(
+    values: List<Float>,
+    modifier: Modifier = Modifier,
+    baseline: Float? = null,
+    includeZero: Boolean = false,
+    seed: Any? = null,
+    lineColor: Color = SketchPalette.Ink,
+    baselineColor: Color = SketchPalette.InkFaint,
+) {
+    val s = SketchGeometry.seedOf(seed, "chart")
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(110.dp)
+            .drawBehind {
+                if (values.size < 2) return@drawBehind
+                var lo = values.min()
+                var hi = values.max()
+                baseline?.let {
+                    lo = minOf(lo, it)
+                    hi = maxOf(hi, it)
+                }
+                if (includeZero) {
+                    lo = minOf(lo, 0f)
+                    hi = maxOf(hi, 0f)
+                }
+                val span = (hi - lo).let { if (it < 1e-6f) 1f else it }
+                val pad = 6f
+                val w = size.width - 2 * pad
+                val h = size.height - 2 * pad
+                fun y(v: Float) = pad + h * (1f - (v - lo) / span)
+
+                val rnd = Random(s)
+                val path = Path()
+                values.forEachIndexed { i, v ->
+                    val px = pad + w * i / (values.size - 1) + (rnd.nextFloat() - 0.5f) * 1.6f
+                    val py = y(v) + (rnd.nextFloat() - 0.5f) * 1.6f
+                    if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                }
+                baseline?.let {
+                    val by = y(it)
+                    val bp = SketchGeometry.line(
+                        from = Offset(pad - 2f, by),
+                        to = Offset(size.width - pad + 2f, by),
+                        jitter = 0.8f,
+                        seed = s * 31 + 7,
+                    )
+                    drawPath(bp, baselineColor, style = Stroke(width = 1.2f))
+                }
+                drawPath(path, lineColor, style = Stroke(width = 2.2f, cap = StrokeCap.Round))
+            },
+    )
 }

@@ -1,6 +1,7 @@
 package com.ssqpick.rules
 
 import com.ssqpick.model.Draw
+import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.TicketDraft
 
 /**
@@ -22,6 +23,8 @@ data class DraftBacktest(
     val blueHitBets: Long,
     /** 中过奖的注·期（任意奖级）。 */
     val winningBets: Long,
+    /** 各奖级命中注数（只含 >0 的奖级）。 */
+    val tierCounts: Map<PrizeTier, Long>,
     /** 假装期期都买的总投入（元）。 */
     val costYuan: Long,
     /** 按各期实付额累加的总奖金（元）。 */
@@ -46,6 +49,7 @@ data class DraftBacktest(
             redHitBets = emptyMap(),
             blueHitBets = 0L,
             winningBets = 0L,
+            tierCounts = emptyMap(),
             costYuan = 0L,
             prizeYuan = 0L,
         )
@@ -56,6 +60,7 @@ fun backtest(draft: TicketDraft, draws: List<Draw>): DraftBacktest {
     if (!TicketRules.validate(draft).isValid) return DraftBacktest.empty(draws.size)
     val bets = TicketRules.betCount(draft)
     val redAcc = HashMap<Int, Long>()
+    val tierAcc = HashMap<PrizeTier, Long>()
     var blueHit = 0L
     var winning = 0L
     var prize = 0L
@@ -68,6 +73,7 @@ fun backtest(draft: TicketDraft, draws: List<Draw>): DraftBacktest {
         val breakdown = TicketRules.prizeBreakdown(draft, d)
         winning += breakdown.values.sum()
         for ((tier, count) in breakdown) {
+            tierAcc[tier] = (tierAcc[tier] ?: 0L) + count
             prize += TicketRules.amountFor(tier, d) * count
         }
     }
@@ -78,6 +84,7 @@ fun backtest(draft: TicketDraft, draws: List<Draw>): DraftBacktest {
         redHitBets = redAcc,
         blueHitBets = blueHit,
         winningBets = winning,
+        tierCounts = tierAcc,
         costYuan = bets * draws.size * TicketRules.PRICE_YUAN,
         prizeYuan = prize,
     )

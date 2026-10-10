@@ -8,6 +8,7 @@ val ticketModule = module {
         TicketViewModel(
             ticketRepository = get(),
             drawRepository = get(),
+            purchaseRepository = get(),
         )
     }
 }

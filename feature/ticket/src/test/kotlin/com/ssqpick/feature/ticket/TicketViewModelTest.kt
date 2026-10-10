@@ -1,19 +1,25 @@
 package com.ssqpick.feature.ticket
 
 import com.ssqpick.model.Draw
+import com.ssqpick.model.Purchase
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
 import com.ssqpick.model.TicketKind
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.store.DrawRepository
+import com.ssqpick.store.PurchaseRepository
 import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -61,7 +67,27 @@ class TicketViewModelTest {
         override suspend fun syncFromOfficial(): SyncResult = SyncResult.AlreadyUpToDate
     }
 
-    private fun vm() = TicketViewModel(FakeTicketRepo(), FakeDrawRepo())
+    private class FakePurchaseRepo : PurchaseRepository {
+        private val state = MutableStateFlow<List<Purchase>>(emptyList())
+        private var nextId = 1L
+        val rows: List<Purchase> get() = state.value
+
+        override fun observeAll(): Flow<List<Purchase>> = state
+        override suspend fun all(): List<Purchase> = state.value
+        override suspend fun unsettled(): List<Purchase> = state.value.filter { !it.settled }
+        override suspend fun record(ticketId: Long, costYuan: Long) {
+            state.value += Purchase(id = nextId++, ticketId = ticketId, purchasedAtEpochMs = 0L, costYuan = costYuan)
+        }
+
+        override suspend fun settle(ids: List<Long>) {}
+        override suspend fun delete(id: Long) {
+            state.value = state.value.filter { it.id != id }
+        }
+    }
+
+    private fun vm(
+        purchaseRepo: FakePurchaseRepo = FakePurchaseRepo(),
+    ) = TicketViewModel(FakeTicketRepo(), FakeDrawRepo(), purchaseRepo)
 
     @Test
     fun `新号码进胆码不进拖码`() {
@@ -170,5 +196,33 @@ class TicketViewModelTest {
         val d = vm.ui.value.draft
         assertEquals(6, d.redPicked.size)
         assertTrue(d.redPicked.containsAll(kept))
+    }
+
+    @Test
+    fun `记录购买两笔后撤销最近一笔`() = runTest {
+        val purchases = FakePurchaseRepo()
+        val vm = vm(purchaseRepo = purchases)
+        // purchases 是 WhileSubscribed 的 stateIn：测试里得先有人订阅才会收集
+        backgroundScope.launch { vm.purchases.collect { } }
+        advanceUntilIdle()
+
+        val ticket = Ticket(
+            id = 1L,
+            createdAtEpochMs = 0L,
+            draft = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7)),
+        )
+        vm.recordPurchase(ticket)
+        advanceUntilIdle()
+        assertEquals(1, purchases.rows.size)
+        assertEquals(2L, purchases.rows.first().costYuan)
+
+        vm.recordPurchase(ticket)
+        advanceUntilIdle()
+        assertEquals(2, purchases.rows.size)
+
+        vm.undoLastPurchase(ticket)
+        advanceUntilIdle()
+        assertEquals(1, purchases.rows.size)
+        assertTrue(vm.ui.value.actionMessage?.contains("撤销") == true)
     }
 }

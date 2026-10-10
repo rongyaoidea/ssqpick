@@ -42,6 +42,7 @@ class DraftBacktestTest {
         assertEquals(1L, r.redHitBets[0])
         assertEquals(1L, r.blueHitBets)
         assertEquals(1L, r.winningBets)
+        assertEquals(mapOf(PrizeTier.THIRD to 1L), r.tierCounts)
         assertEquals(2L * 2L, r.costYuan)
         assertEquals(PrizeTier.THIRD.fixedAmountYuan, r.prizeYuan)
     }

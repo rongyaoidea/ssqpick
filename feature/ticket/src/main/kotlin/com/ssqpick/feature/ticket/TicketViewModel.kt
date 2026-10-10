@@ -3,19 +3,22 @@ package com.ssqpick.feature.ticket
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ssqpick.model.Draw
+import com.ssqpick.model.Purchase
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.DraftBacktest
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.NumberGenerator
-import com.ssqpick.rules.NumberStats
-import com.ssqpick.rules.ShapeStats
+import com.ssqpick.rules.PurchaseLedger
+import com.ssqpick.rules.TicketPurchaseSummary
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
-import com.ssqpick.rules.computeShape
-import com.ssqpick.rules.computeStats
+import com.ssqpick.rules.ledgerOf
+import com.ssqpick.rules.outcomeOf
+import com.ssqpick.rules.summaryOf
 import com.ssqpick.store.DrawRepository
+import com.ssqpick.store.PurchaseRepository
 import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.Dispatchers
@@ -25,10 +28,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.ssqpick.rules.backtest as runBacktest
+
+/** 回测的时间窗口。 */
+enum class BacktestRange(val label: String, val draws: Int?) {
+    ALL("全部", null),
+    LAST_100("近100期", 100),
+    LAST_30("近30期", 30),
+}
 
 /** 手选号码界面。 */
 data class TicketUiState(
@@ -42,8 +51,11 @@ data class TicketUiState(
     val autoBlues: Set<Int> = emptySet(),
     val tickets: List<Ticket> = emptyList(),
     val syncMessage: String? = null,
+    /** 购买/备注等操作的即时反馈。 */
+    val actionMessage: String? = null,
     val drawCount: Long = 0L,
     val newestDraw: Draw? = null,
+    val backtestRange: BacktestRange = BacktestRange.ALL,
 ) {
     val validation by lazy { TicketRules.validate(draft) }
     val isValid: Boolean get() = validation.isValid
@@ -54,6 +66,7 @@ data class TicketUiState(
 class TicketViewModel(
     private val ticketRepository: TicketRepository,
     private val drawRepository: DrawRepository,
+    private val purchaseRepository: PurchaseRepository,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(TicketUiState())
@@ -62,32 +75,67 @@ class TicketViewModel(
     val tickets: StateFlow<List<Ticket>> = ticketRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** 冷热统计：开奖库变化时重算，几百期只是毫秒级。 */
-    val stats: StateFlow<NumberStats?> = drawRepository.observeAll()
-        .map(::computeStats)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /** 开奖形态：同上，画像卡用。 */
-    val shape: StateFlow<ShapeStats?> = drawRepository.observeAll()
-        .map(::computeShape)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val purchases: StateFlow<List<Purchase>> = purchaseRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * 当前草稿的历史回测：随选号实时更新。
+     * 当前草稿的历史回测：随选号与区间切换实时更新。
      * 全库扫描是毫秒级，但仍扔到 Default 线程，别占主线程。
      */
-    val backtest: StateFlow<DraftBacktest?> = combine(_ui, drawRepository.observeAll()) { u, draws ->
-        if (u.draft.isValid) runBacktest(u.draft, draws) else null
-    }
-        .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /** 每张存票相对最新一期的状态：未开奖 / 未中奖 / 中奖。 */
-    val statuses: StateFlow<Map<Long, TicketStatus>> =
-        combine(tickets, drawRepository.observeNewest()) { ts, newest ->
-            ts.associate { it.id to TicketRules.statusOf(it, newest) }
+    val backtest: StateFlow<DraftBacktest?> =
+        combine(_ui, drawRepository.observeAll()) { u, draws ->
+            val window = u.backtestRange.draws?.let { n -> draws.take(n) } ?: draws
+            if (u.draft.isValid) runBacktest(u.draft, window) else null
         }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * 每张存票的状态。
+     *
+     * 有购买记录：看最近一笔——绑定到哪期就报哪期的结果，没绑到就是未开奖。
+     * 无购买记录：沿用旧口径（相对最新一期的假设核对），漂在"假如买了"的语义上。
+     */
+    val statuses: StateFlow<Map<Long, TicketStatus>> =
+        combine(tickets, purchases, drawRepository.observeAll()) { ts, ps, draws ->
+            val asc = draws.asReversed()
+            val newest = draws.firstOrNull()
+            val byTicket = ps.groupBy { it.ticketId }
+            ts.associate { t ->
+                val mine = byTicket[t.id].orEmpty()
+                t.id to if (mine.isEmpty()) {
+                    TicketRules.statusOf(t, newest)
+                } else {
+                    val latest = mine.maxByOrNull { it.purchasedAtEpochMs }!!
+                    val o = outcomeOf(latest, t, asc)
+                    when {
+                        o.isPending -> TicketStatus.NotDrawn
+                        o.hasWon -> TicketStatus.Won(o.amountYuan, o.topTier)
+                        else -> TicketStatus.Missed
+                    }
+                }
+            }
+        }
+            .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** 每张存票的购买汇总（笔数/投入/奖金/最近一笔）。 */
+    val purchaseSummaries: StateFlow<Map<Long, TicketPurchaseSummary>> =
+        combine(tickets, purchases, drawRepository.observeAll()) { ts, ps, draws ->
+            val asc = draws.asReversed()
+            val byTicket = ps.groupBy { it.ticketId }
+            ts.associate { t -> t.id to summaryOf(t, byTicket[t.id].orEmpty(), asc) }
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** 真实账本：全部购买的投入/奖金/累计净收益时间线。 */
+    val ledger: StateFlow<PurchaseLedger> =
+        combine(purchases, tickets, drawRepository.observeAll()) { ps, ts, draws ->
+            ledgerOf(ps, ts.associateBy { it.id }, draws.asReversed())
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PurchaseLedger(0, 0, 0L, 0L, emptyList()))
 
     /** 每张存票的历史最佳：库或票变化时重算。 */
     val histories: StateFlow<Map<Long, HistoryRecord>> =
@@ -188,6 +236,10 @@ class TicketViewModel(
         _ui.value = _ui.value.copy(blueBoldMode = on)
     }
 
+    fun setBacktestRange(range: BacktestRange) {
+        _ui.value = _ui.value.copy(backtestRange = range)
+    }
+
     fun clear() {
         _ui.value = _ui.value.copy(draft = TicketDraft(), autoReds = emptySet(), autoBlues = emptySet())
     }
@@ -229,8 +281,44 @@ class TicketViewModel(
         }
     }
 
+    // ------------------------------------------------------------ 票管理
+
     fun delete(ticket: Ticket) {
-        viewModelScope.launch { ticketRepository.delete(ticket.id) }
+        viewModelScope.launch {
+            ticketRepository.delete(ticket.id)
+            _ui.value = _ui.value.copy(actionMessage = "已删除号码 #${ticket.id}")
+        }
+    }
+
+    fun rename(ticket: Ticket, label: String?) {
+        val clean = label?.trim()?.takeIf { it.isNotEmpty() }
+        viewModelScope.launch {
+            ticketRepository.rename(ticket.id, clean)
+            _ui.value = _ui.value.copy(
+                actionMessage = if (clean == null) "已清除 #${ticket.id} 的备注" else "备注已保存：$clean",
+            )
+        }
+    }
+
+    /** 记录一笔购买：花费按当前注数 × 2 元。 */
+    fun recordPurchase(ticket: Ticket) {
+        viewModelScope.launch {
+            val cost = ticket.draft.priceYuan
+            purchaseRepository.record(ticket.id, cost)
+            _ui.value = _ui.value.copy(
+                actionMessage = "已记录一笔购买（$cost 元）：下一期开奖后自动对奖",
+            )
+        }
+    }
+
+    /** 撤销最近一笔购买（手滑记错时用）。 */
+    fun undoLastPurchase(ticket: Ticket) {
+        val latest = purchases.value.filter { it.ticketId == ticket.id }
+            .maxByOrNull { it.purchasedAtEpochMs } ?: return
+        viewModelScope.launch {
+            purchaseRepository.delete(latest.id)
+            _ui.value = _ui.value.copy(actionMessage = "已撤销 #${ticket.id} 最近一笔购买")
+        }
     }
 
     // ------------------------------------------------------------ 历史数据同步
