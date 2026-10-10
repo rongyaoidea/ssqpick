@@ -131,13 +131,18 @@ data class DraftFingerprint(
     val zoneShareMean: List<Double>,
 )
 
-fun fingerprintOf(draft: TicketDraft, draws: List<Draw>): DraftFingerprint? {
+fun fingerprintOf(draft: TicketDraft, draws: List<Draw>): DraftFingerprint? = fingerprintOf(draft, draws, computeShape(draws))
+
+/**
+ * 形态统计由调用方传入（如 ViewModel 按库变化缓存一份）：
+ * 指纹随每次选号实时重算，不该顺带重扫一遍全库形态。
+ */
+fun fingerprintOf(draft: TicketDraft, draws: List<Draw>, shape: ShapeStats): DraftFingerprint? {
     val reds = draft.redPool
     if (reds.isEmpty()) return null
     val sums = draws.map { it.red.sum() }.sorted()
     val sum = reds.sum()
     val below = if (sums.isEmpty()) 0 else sums.count { it < sum }
-    val shape = computeShape(draws)
     return DraftFingerprint(
         draws = draws.size,
         redCount = reds.size,

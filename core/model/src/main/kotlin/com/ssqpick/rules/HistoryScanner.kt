@@ -39,23 +39,27 @@ object HistoryScanner {
         var total = 0L
 
         for (draw in draws) {
-            // 两处都复用 TicketRules 的 O(1) 组合计数，不再自己做第二套实现
-            val drawBestTier = TicketRules.prizeBreakdown(draft, draw)
-                .keys
-                .maxByOrNull { it.rank }
-            val drawBestRed = TicketRules.redMatchCounts(draft, draw).keys.maxOrNull() ?: -1
+            // 每期只算一次红/蓝命中分布，再组装奖级与金额——
+            // 此前对同一期最多重复算 5 次 redMatchCounts（中奖期）
+            val redCounts = TicketRules.redMatchCounts(draft, draw)
+            val (blueHit, blueTotal) = TicketRules.blueMatchCounts(draft, draw)
+            val drawBestRed = redCounts.keys.maxOrNull() ?: -1
             if (drawBestRed > bestRed) {
                 bestRed = drawBestRed
-                val (blueHit, _) = TicketRules.blueMatchCounts(draft, draw)
                 bestRedBlue = blueHit > 0
             }
-            if (drawBestTier != null) {
-                total += TicketRules.evaluate(draft, draw).first
-                if (bestTier == null || drawBestTier.rank > bestTier.rank) {
-                    bestTier = drawBestTier
-                    bestTierCode = draw.code
-                    bestTierAmount = TicketRules.evaluate(draft, draw).first
-                }
+            val breakdown = TicketRules.prizeBreakdownOf(redCounts, blueHit, blueTotal)
+            if (breakdown.isEmpty()) continue
+            var drawAmount = 0L
+            for ((tier, count) in breakdown) {
+                drawAmount += TicketRules.amountFor(tier, draw) * count
+            }
+            total += drawAmount
+            val drawBestTier = breakdown.keys.maxByOrNull { it.rank } ?: continue
+            if (bestTier == null || drawBestTier.rank > bestTier.rank) {
+                bestTier = drawBestTier
+                bestTierCode = draw.code
+                bestTierAmount = drawAmount
             }
         }
 

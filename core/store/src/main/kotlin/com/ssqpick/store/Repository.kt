@@ -16,10 +16,13 @@ import com.ssqpick.store.mapper.toDraft
 import com.ssqpick.store.mapper.toDraw
 import com.ssqpick.store.mapper.toPurchase
 import com.ssqpick.store.network.CwlApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import com.ssqpick.store.db.Ticket as TicketRow
 
@@ -78,49 +81,83 @@ class DrawRepositoryImpl(
         }
     }
 
+    /** 单飞锁：选号页/对奖页手动同步与后台 Worker 并发时，只跑一次请求。 */
+    private val syncMutex = Mutex()
+
+    /** 已完成的同步次数，让排队者识别"等待期间别人刚同步过"。 */
+    @Volatile
+    private var completedSyncs = 0L
+
+    @Volatile
+    private var lastResult: SyncResult? = null
+
     /**
-     * 增量同步。
+     * 增量同步（并发安全，单飞）。
      *
      * 官方提供 2013 至今约 2000+ 期（实测 issueCount 放大即可一次取回）。
-     * 两种路径：
+     * 两种路径（见 [doSync]）：
      * - **全量回填**：库为空、或本地期数明显不足（老版本只同步过 500 期），
      *   一次请求取回全部历史；
      * - **增量**：其余情况只取最近 500 期，按日期筛出新增。
      *
+     * 多个入口同时触发时只有第一个真正请求；排队者复用刚完成的结果，
+     * 不再各发一份相同的请求。
+     */
+    override suspend fun syncFromOfficial(): SyncResult = withContext(io) {
+        val seen = completedSyncs
+        syncMutex.withLock {
+            // 等待锁期间别人已完成一次同步：转述那次结果，不再发第二次请求
+            if (completedSyncs != seen) return@withLock lastResult ?: SyncResult.AlreadyUpToDate
+            val result = try {
+                doSync()
+            } catch (c: CancellationException) {
+                // 取消必须原样抛出：吞掉会被 Worker 当成网络失败去 retry，
+                // 还会在已取消的作用域上继续写库
+                throw c
+            } catch (e: Exception) {
+                SyncResult.Failure(e.message ?: e::class.simpleName ?: "未知错误")
+            }
+            completedSyncs++
+            lastResult = result
+            result
+        }
+    }
+
+    /**
+     * 真正的同步逻辑，只在持锁时调用。
+     *
      * 新增期数用"前后计数差"计算，而不是 remote.size——回填时库里已有部分
      * 数据，insertOrIgnore 会去重，按 remote.size 报数会说谎。
      */
-    override suspend fun syncFromOfficial(): SyncResult = withContext(io) {
-        runCatching {
-            val localNewest = drawQueries.selectNewestDraw().executeAsOneOrNull()
-            val before = drawQueries.selectDrawCount().executeAsOne()
+    private suspend fun doSync(): SyncResult {
+        val localNewest = drawQueries.selectNewestDraw().executeAsOneOrNull()
+        val before = drawQueries.selectDrawCount().executeAsOne()
 
-            val backfill = localNewest == null || before < BACKFILL_MIN_DRAWS
-            val remote = if (backfill) {
-                api.fetchFullHistory()
-            } else {
-                api.fetchRecent(issueCount = RECENT_WINDOW).sortedByDescending { it.date }
-            }
-            if (remote.isEmpty()) return@withContext SyncResult.Failure("接口未返回开奖数据")
+        val backfill = localNewest == null || before < BACKFILL_MIN_DRAWS
+        val remote = if (backfill) {
+            api.fetchFullHistory()
+        } else {
+            api.fetchRecent(issueCount = RECENT_WINDOW).sortedByDescending { it.date }
+        }
+        if (remote.isEmpty()) return SyncResult.Failure("接口未返回开奖数据")
 
-            // 回填时全量交给 insertOrIgnore 去重；增量时必须先按日期筛，
-            // 否则把 500 期整批重插一遍（虽然无害，但白写几十个事务步骤）
-            val fresh = if (backfill || localNewest == null) {
-                remote
-            } else {
-                remote.filter { it.date.toString() > localNewest.date.toString() }
-            }
-            if (fresh.isEmpty()) return@withContext SyncResult.AlreadyUpToDate
+        // 回填时全量交给 insertOrIgnore 去重；增量时必须先按日期筛，
+        // 否则把 500 期整批重插一遍（虽然无害，但白写几十个事务步骤）
+        val fresh = if (backfill || localNewest == null) {
+            remote
+        } else {
+            remote.filter { it.date.toString() > localNewest.date.toString() }
+        }
+        if (fresh.isEmpty()) return SyncResult.AlreadyUpToDate
 
-            insertAll(fresh)
-            val total = drawQueries.selectDrawCount().executeAsOne()
-            val imported = (total - before).toInt()
-            if (imported <= 0) {
-                SyncResult.AlreadyUpToDate
-            } else {
-                SyncResult.Success(imported, total)
-            }
-        }.getOrElse { e -> SyncResult.Failure(e.message ?: e::class.simpleName ?: "未知错误") }
+        insertAll(fresh)
+        val total = drawQueries.selectDrawCount().executeAsOne()
+        val imported = (total - before).toInt()
+        return if (imported <= 0) {
+            SyncResult.AlreadyUpToDate
+        } else {
+            SyncResult.Success(imported, total)
+        }
     }
 
     companion object {

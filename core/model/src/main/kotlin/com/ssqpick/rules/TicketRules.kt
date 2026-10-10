@@ -192,13 +192,22 @@ object TicketRules {
      */
     fun prizeBreakdown(draft: TicketDraft, draw: Draw): Map<PrizeTier, Long> {
         if (firstError(draft) != null) return emptyMap()
-        val redCount = redMatchCounts(draft, draw) // 红球命中数 -> 注数
         val (blueHit, blueTotal) = blueMatchCounts(draft, draw)
+        return prizeBreakdownOf(redMatchCounts(draft, draw), blueHit, blueTotal)
+    }
+
+    /**
+     * 由已算出的红球命中分布与蓝球命中数组装奖级 → 注数。
+     *
+     * 调用方手里已有 [redMatchCounts]/[blueMatchCounts] 结果时（如历史扫描
+     * 逐期只算一次），用这个避免重复计算。
+     */
+    fun prizeBreakdownOf(redCounts: Map<Int, Long>, blueHit: Long, blueTotal: Long): Map<PrizeTier, Long> {
         val blueMiss = blueTotal - blueHit
         if (blueHit < 0 || blueMiss < 0) return emptyMap()
 
         val acc = HashMap<PrizeTier, Long>()
-        for ((k, rc) in redCount) {
+        for ((k, rc) in redCounts) {
             if (rc <= 0L) continue
             tierFor(k, true)?.let { acc[it] = (acc[it] ?: 0L) + rc * blueHit }
             tierFor(k, false)?.let { acc[it] = (acc[it] ?: 0L) + rc * blueMiss }

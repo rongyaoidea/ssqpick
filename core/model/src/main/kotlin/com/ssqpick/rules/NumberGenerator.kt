@@ -21,14 +21,7 @@ object NumberGenerator {
     /** 从 1..total 中无放回均匀抽取 [count] 个，升序返回。 */
     fun sample(total: Int, count: Int): List<Int> {
         require(count in 0..total) { "count=$count 超出 1..$total" }
-        val pool = IntArray(total) { it + 1 }
-        // 部分 Fisher-Yates：前 count 个位置完成洗牌
-        for (i in 0 until count) {
-            val j = i + random.nextInt(total - i)
-            val tmp = pool[i]
-            pool[i] = pool[j]
-            pool[j] = tmp
-        }
+        val pool = shuffledTop(total, count)
         pool.sort(0, count)
         return pool.take(count)
     }
@@ -41,6 +34,12 @@ object NumberGenerator {
      */
     fun sampleOrdered(total: Int, count: Int): List<Int> {
         require(count in 0..total) { "count=$count 超出 1..$total" }
+        // 前 count 个位置本身就是洗牌结果，直接取，不排序
+        return shuffledTop(total, count).take(count)
+    }
+
+    /** 部分 Fisher-Yates：把 1..total 的前 [count] 个位置洗成均匀随机序。 */
+    private fun shuffledTop(total: Int, count: Int): IntArray {
         val pool = IntArray(total) { it + 1 }
         for (i in 0 until count) {
             val j = i + random.nextInt(total - i)
@@ -48,8 +47,7 @@ object NumberGenerator {
             pool[i] = pool[j]
             pool[j] = tmp
         }
-        // 前 count 个位置本身就是洗牌结果，直接取，不排序
-        return pool.take(count)
+        return pool
     }
 
     /**

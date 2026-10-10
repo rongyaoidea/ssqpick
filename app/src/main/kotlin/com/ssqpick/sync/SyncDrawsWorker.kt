@@ -17,6 +17,7 @@ import com.ssqpick.store.PurchaseRepository
 import com.ssqpick.store.SettingsStorage
 import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
@@ -63,11 +64,11 @@ class SyncDrawsWorker(
         PurchaseNotifier.notifyNewDraw(applicationContext, newest)
     }
 
-    /** 结算未处理的购买；新中奖发一次通知。整段包 runCatching：结算不能拖垮同步任务。 */
+    /** 结算未处理的购买；新中奖发一次通知。结算失败不能拖垮同步任务，取消要原样抛出。 */
     private suspend fun settlePurchases() {
-        runCatching {
+        try {
             val pending = purchaseRepository.unsettled()
-            if (pending.isEmpty()) return@runCatching
+            if (pending.isEmpty()) return
             val tickets = ticketRepository.all().associateBy { it.id }
             val drawsAsc = drawRepository.all().sortedBy { it.date }
             val wins = mutableListOf<WinEvent>()
@@ -87,6 +88,10 @@ class SyncDrawsWorker(
             }
             purchaseRepository.settle(settledIds)
             if (wins.isNotEmpty()) PurchaseNotifier.notifyWins(applicationContext, wins)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (_: Exception) {
+            // 结算失败（如库被并发删除）不能拖垮同步任务
         }
     }
 

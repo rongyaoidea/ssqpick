@@ -4,6 +4,8 @@ import com.ssqpick.model.Draw
 import com.ssqpick.model.Purchase
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
+import com.ssqpick.rules.PurchaseOutcome
+import com.ssqpick.rules.outcomeOf
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import org.junit.Assert.assertEquals
@@ -19,6 +21,11 @@ class CalendarMarksTest {
     )
 
     private fun ms(iso: String) = Instant.parse(iso).toEpochMilliseconds()
+
+    /** 按票构造购买结算表（等价于 ViewModel 的共享结算流）。 */
+    private fun outcomesOf(purchases: List<Purchase>, tickets: Map<Long, Ticket>): Map<Long, PurchaseOutcome> = purchases.mapNotNull { p ->
+        tickets[p.ticketId]?.let { t -> p.id to outcomeOf(p, t, drawsAsc) }
+    }.toMap()
 
     private val winDraw = draw("2026002", "2026-01-04", listOf(1, 2, 3, 4, 5, 6), 7)
     private val missDraw = draw("2026003", "2026-01-06", listOf(10, 11, 12, 13, 14, 15), 8)
@@ -47,7 +54,7 @@ class CalendarMarksTest {
             // 1月10日买 → 还没来得及开奖 → PENDING
             Purchase(id = 4, ticketId = 1, purchasedAtEpochMs = ms("2026-01-10T10:00:00Z"), costYuan = 2),
         )
-        val marks = dayMarksOf(purchases, mapOf(1L to winTicket, 2L to missTicket), drawsAsc)
+        val marks = dayMarksOf(purchases, outcomesOf(purchases, mapOf(1L to winTicket, 2L to missTicket)))
         assertEquals(DayMark.WIN, marks[LocalDate.parse("2026-01-03")])
         assertEquals(DayMark.MISS, marks[LocalDate.parse("2026-01-05")])
         assertEquals(DayMark.PENDING, marks[LocalDate.parse("2026-01-10")])
@@ -59,6 +66,6 @@ class CalendarMarksTest {
         val purchases = listOf(
             Purchase(id = 1, ticketId = 99, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 2),
         )
-        assertEquals(emptyMap<LocalDate, DayMark>(), dayMarksOf(purchases, emptyMap(), drawsAsc))
+        assertEquals(emptyMap<LocalDate, DayMark>(), dayMarksOf(purchases, outcomesOf(purchases, emptyMap())))
     }
 }

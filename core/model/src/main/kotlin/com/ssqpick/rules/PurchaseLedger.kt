@@ -4,17 +4,21 @@ import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.Purchase
 import com.ssqpick.model.Ticket
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 
 /**
  * 购买记录的结算口径。
  *
- * 一笔购买绑定到"购买日期（本地时区）当天或之后的第一期开奖"——
- * 买票时下一期还没开，期号不可知，所以绑定是读取时推导的纯函数，
- * 不落库。已知误差：开奖当晚 21:15 之后记录的购买会绑到当晚那期
- * （实际想买的是下一期），按周中位使用场景概率可接受。
+ * 一笔购买绑定到"购买时刻之后的第一期开奖"——买票时下一期还没开，
+ * 期号不可知，所以绑定是读取时推导的纯函数，不落库。
+ * 开奖当晚 21:15（[DrawSchedule.DRAW_TIME]）之后记录的购买，当晚那期
+ * 已摇完，视为买的是下一期，从次日起绑——否则这笔购买会永久绑到
+ * 已开的那期，下一期真中了也永远核不到。
  */
 data class PurchaseOutcome(
     val purchase: Purchase,
@@ -27,11 +31,28 @@ data class PurchaseOutcome(
     val hasWon: Boolean get() = topTier != null
 }
 
-/** [drawsAsc] 必须按日期升序。 */
+/** [drawsAsc] 必须按日期升序（二分查找依赖有序）。 */
 fun bindDraw(purchase: Purchase, drawsAsc: List<Draw>): Draw? {
-    val date = Instant.fromEpochMilliseconds(purchase.purchasedAtEpochMs)
-        .toLocalDateTime(TimeZone.currentSystemDefault()).date
-    return drawsAsc.firstOrNull { it.date >= date }
+    val purchasedAt = Instant.fromEpochMilliseconds(purchase.purchasedAtEpochMs)
+        .toLocalDateTime(TimeZone.currentSystemDefault())
+    // 开奖当晚 21:15 之后记录的购买：当晚那期已开，绑下一期
+    val threshold = if (purchasedAt.time >= DrawSchedule.DRAW_TIME) {
+        purchasedAt.date.plus(1, DateTimeUnit.DAY)
+    } else {
+        purchasedAt.date
+    }
+    return drawsAsc.getOrNull(firstIndexOnOrAfter(drawsAsc, threshold))
+}
+
+/** 首个 date >= [threshold] 的下标；O(log n)。 */
+private fun firstIndexOnOrAfter(drawsAsc: List<Draw>, threshold: LocalDate): Int {
+    var lo = 0
+    var hi = drawsAsc.size
+    while (lo < hi) {
+        val mid = (lo + hi) ushr 1
+        if (drawsAsc[mid].date < threshold) lo = mid + 1 else hi = mid
+    }
+    return lo
 }
 
 fun outcomeOf(purchase: Purchase, ticket: Ticket, drawsAsc: List<Draw>): PurchaseOutcome {
@@ -51,7 +72,13 @@ data class TicketPurchaseSummary(
     val latest: PurchaseOutcome?,
 )
 
-fun summaryOf(ticket: Ticket, purchases: List<Purchase>, drawsAsc: List<Draw>): TicketPurchaseSummary {
+/**
+ * 一张票的购买汇总，票行展示用。
+ *
+ * [outcomes] 为购买 id → 结算结果（由 ViewModel 的共享结算流一次算好），
+ * 这里不再自己逐笔 outcomeOf。
+ */
+fun summaryOf(purchases: List<Purchase>, outcomes: Map<Long, PurchaseOutcome>): TicketPurchaseSummary {
     if (purchases.isEmpty()) return TicketPurchaseSummary(0, 0, 0L, 0L, null)
     val ordered = purchases.sortedBy { it.purchasedAtEpochMs }
     var cost = 0L
@@ -60,7 +87,7 @@ fun summaryOf(ticket: Ticket, purchases: List<Purchase>, drawsAsc: List<Draw>): 
     var latest: PurchaseOutcome? = null
     for (p in ordered) {
         cost += p.costYuan
-        val o = outcomeOf(p, ticket, drawsAsc)
+        val o = outcomes[p.id] ?: continue
         if (o.isPending) pending++ else prize += o.amountYuan
         latest = o
     }
@@ -85,10 +112,14 @@ data class PurchaseLedger(
     val netYuan: Long get() = totalPrizeYuan - totalCostYuan
 }
 
+/**
+ * 全部购买的真实账本：投入、奖金、累计净收益时间线。
+ *
+ * [outcomes] 为购买 id → 结算结果；孤儿购买（票已删）不在表里，只计成本。
+ */
 fun ledgerOf(
     purchases: List<Purchase>,
-    ticketsById: Map<Long, Ticket>,
-    drawsAsc: List<Draw>,
+    outcomes: Map<Long, PurchaseOutcome>,
 ): PurchaseLedger {
     val ordered = purchases.sortedBy { it.purchasedAtEpochMs }
     var cost = 0L
@@ -100,9 +131,8 @@ fun ledgerOf(
     val tierAmounts = HashMap<PrizeTier, Long>()
     ordered.forEachIndexed { index, p ->
         cost += p.costYuan
-        val ticket = ticketsById[p.ticketId]
-        if (ticket != null) {
-            val o = outcomeOf(p, ticket, drawsAsc)
+        val o = outcomes[p.id]
+        if (o != null) {
             if (o.isPending) {
                 pending++
             } else {

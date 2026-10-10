@@ -7,12 +7,32 @@ import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.util.TimeZone
 
 class PurchaseLedgerTest {
+
+    /**
+     * 绑定口径与本地时区有关（开奖当晚 21:15 之后算下一期）。
+     * 把测试时区钉在 UTC：结果与 CI 一致、可复现。
+     */
+    private var originalTz: TimeZone? = null
+
+    @Before
+    fun pinUtc() {
+        originalTz = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    }
+
+    @After
+    fun restoreTz() {
+        originalTz?.let { TimeZone.setDefault(it) }
+    }
 
     private fun draw(code: String, date: String, red: List<Int>, blue: Int) = Draw(
         code = code,
@@ -26,6 +46,14 @@ class PurchaseLedgerTest {
     private val winDraw = draw("2026002", "2026-01-04", listOf(1, 2, 3, 4, 5, 6), 7)
     private val missDraw = draw("2026003", "2026-01-06", listOf(10, 11, 12, 13, 14, 15), 8)
     private val drawsAsc = listOf(winDraw, missDraw).sortedBy { it.date }
+
+    /** 按票构造购买结算表（等价于 ViewModel 的共享结算流）。 */
+    private fun outcomesOf(purchases: List<Purchase>, vararg tickets: Ticket): Map<Long, PurchaseOutcome> {
+        val byId = tickets.associateBy { it.id }
+        return purchases.mapNotNull { p ->
+            byId[p.ticketId]?.let { t -> p.id to outcomeOf(p, t, drawsAsc) }
+        }.toMap()
+    }
 
     private val winTicket = Ticket(
         id = 1L,
@@ -41,6 +69,16 @@ class PurchaseLedgerTest {
         // 1月5日买 → 绑 1月6日那期（跳过已开的 1月4日）
         val p2 = Purchase(id = 2, ticketId = 1, purchasedAtEpochMs = ms("2026-01-05T10:00:00Z"), costYuan = 2)
         assertEquals("2026003", bindDraw(p2, drawsAsc)?.code)
+    }
+
+    @Test
+    fun `开奖当晚21点15后记录_绑下一期`() {
+        // 1月4日（开奖日）22:00 记录：当晚那期 21:15 已开，应绑 1月6日那期
+        val after = Purchase(id = 1, ticketId = 1, purchasedAtEpochMs = ms("2026-01-04T22:00:00Z"), costYuan = 2)
+        assertEquals("2026003", bindDraw(after, drawsAsc)?.code)
+        // 当晚 21:15 之前记录：仍绑当晚那期
+        val before = Purchase(id = 2, ticketId = 1, purchasedAtEpochMs = ms("2026-01-04T20:00:00Z"), costYuan = 2)
+        assertEquals("2026002", bindDraw(before, drawsAsc)?.code)
     }
 
     @Test
@@ -77,7 +115,7 @@ class PurchaseLedgerTest {
             Purchase(id = 2, ticketId = 1, purchasedAtEpochMs = ms("2026-01-05T10:00:00Z"), costYuan = 2),
             Purchase(id = 3, ticketId = 1, purchasedAtEpochMs = ms("2026-01-10T10:00:00Z"), costYuan = 2),
         )
-        val s = summaryOf(winTicket, purchases, drawsAsc)
+        val s = summaryOf(purchases, outcomesOf(purchases, winTicket))
         assertEquals(3, s.count)
         assertEquals(1, s.pendingCount)
         assertEquals(6L, s.costYuan)
@@ -95,7 +133,7 @@ class PurchaseLedgerTest {
             Purchase(id = 1, ticketId = 1, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 2),
             Purchase(id = 2, ticketId = 1, purchasedAtEpochMs = ms("2026-01-05T10:00:00Z"), costYuan = 2),
         )
-        val ledger = ledgerOf(purchases, mapOf(1L to winTicket), drawsAsc)
+        val ledger = ledgerOf(purchases, outcomesOf(purchases, winTicket))
         assertEquals(2, ledger.count)
         assertEquals(0, ledger.pendingCount)
         assertEquals(4L, ledger.totalCostYuan)
@@ -121,7 +159,7 @@ class PurchaseLedgerTest {
         val purchases = listOf(
             Purchase(id = 1, ticketId = 1, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 2),
         )
-        val ledger = ledgerOf(purchases, mapOf(1L to ticket), drawsAsc)
+        val ledger = ledgerOf(purchases, outcomesOf(purchases, ticket))
         assertEquals(3000L, ledger.totalPrizeYuan)
         assertEquals(mapOf(PrizeTier.THIRD to 1L), ledger.tierCounts)
         assertEquals(mapOf(PrizeTier.THIRD to 3000L), ledger.tierAmounts)
@@ -134,7 +172,7 @@ class PurchaseLedgerTest {
         val purchases = listOf(
             Purchase(id = 1, ticketId = 99, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 2),
         )
-        val ledger = ledgerOf(purchases, emptyMap(), drawsAsc)
+        val ledger = ledgerOf(purchases, emptyMap())
         assertEquals(2L, ledger.totalCostYuan)
         assertEquals(0L, ledger.totalPrizeYuan)
     }

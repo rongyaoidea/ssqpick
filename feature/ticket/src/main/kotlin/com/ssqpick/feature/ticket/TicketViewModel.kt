@@ -13,10 +13,13 @@ import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.NumberGenerator
 import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.PurchaseLedger
+import com.ssqpick.rules.PurchaseOutcome
+import com.ssqpick.rules.ShapeStats
 import com.ssqpick.rules.SmsCommand
 import com.ssqpick.rules.TicketPurchaseSummary
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
+import com.ssqpick.rules.computeShape
 import com.ssqpick.rules.computeStats
 import com.ssqpick.rules.fingerprintOf
 import com.ssqpick.rules.ledgerOf
@@ -105,6 +108,25 @@ class TicketViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
+     * 购买结算共享流：所有"这笔购买结果如何"的派生流都从这里取，
+     * 一笔购买只结算一次。此前 statuses/summaries/ledger/calendar 各自
+     * 调 outcomeOf，同一笔购买要重复算 4 遍。
+     */
+    private val settlements: StateFlow<Map<Long, PurchaseOutcome>> =
+        combine(purchases, tickets, draws) { ps, ts, ds ->
+            val byId = ts.associateBy { it.id }
+            val asc = ds.asReversed()
+            val out = HashMap<Long, PurchaseOutcome>(ps.size)
+            for (p in ps) {
+                val t = byId[p.ticketId] ?: continue
+                out[p.id] = outcomeOf(p, t, asc)
+            }
+            out
+        }
+            .flowOn(computeDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
      * 当前草稿的历史回测：随选号与区间切换实时更新。
      * 全库扫描是毫秒级，但仍扔到 Default 线程，别占主线程。
      */
@@ -123,9 +145,8 @@ class TicketViewModel(
      * 无购买记录：沿用旧口径（相对最新一期的假设核对），漂在"假如买了"的语义上。
      */
     val statuses: StateFlow<Map<Long, TicketStatus>> =
-        combine(tickets, purchases, draws) { ts, ps, draws ->
-            val asc = draws.asReversed()
-            val newest = draws.firstOrNull()
+        combine(tickets, purchases, settlements, draws) { ts, ps, settled, ds ->
+            val newest = ds.firstOrNull()
             val byTicket = ps.groupBy { it.ticketId }
             ts.associate { t ->
                 val mine = byTicket[t.id].orEmpty()
@@ -133,11 +154,14 @@ class TicketViewModel(
                     TicketRules.statusOf(t, newest)
                 } else {
                     val latest = mine.maxByOrNull { it.purchasedAtEpochMs }!!
-                    val o = outcomeOf(latest, t, asc)
-                    when {
-                        o.isPending -> TicketStatus.NotDrawn
-                        o.hasWon -> TicketStatus.Won(o.amountYuan, o.topTier)
-                        else -> TicketStatus.Missed
+                    when (val o = settled[latest.id]) {
+                        null -> TicketStatus.NotDrawn
+
+                        else -> when {
+                            o.isPending -> TicketStatus.NotDrawn
+                            o.hasWon -> TicketStatus.Won(o.amountYuan, o.topTier)
+                            else -> TicketStatus.Missed
+                        }
                     }
                 }
             }
@@ -145,10 +169,16 @@ class TicketViewModel(
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    /** 形态统计：库变化时算一次，指纹等派生流共用，避免每次选号重扫全库。 */
+    private val shapeStats: StateFlow<ShapeStats> = draws
+        .map(::computeShape)
+        .flowOn(computeDispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), computeShape(emptyList()))
+
     /** 选号指纹：当前草稿在历史分布中的位置，随选号实时更新。 */
     val fingerprint: StateFlow<DraftFingerprint?> =
-        combine(_ui, draws) { u, draws ->
-            fingerprintOf(u.draft, draws)
+        combine(_ui, draws, shapeStats) { u, ds, shape ->
+            fingerprintOf(u.draft, ds, shape)
         }
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -160,27 +190,22 @@ class TicketViewModel(
 
     /** 每张存票的购买汇总（笔数/投入/奖金/最近一笔）。 */
     val purchaseSummaries: StateFlow<Map<Long, TicketPurchaseSummary>> =
-        combine(tickets, purchases, draws) { ts, ps, draws ->
-            val asc = draws.asReversed()
+        combine(tickets, purchases, settlements) { ts, ps, settled ->
             val byTicket = ps.groupBy { it.ticketId }
-            ts.associate { t -> t.id to summaryOf(t, byTicket[t.id].orEmpty(), asc) }
+            ts.associate { t -> t.id to summaryOf(byTicket[t.id].orEmpty(), settled) }
         }
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** 真实账本：全部购买的投入/奖金/累计净收益时间线。 */
     val ledger: StateFlow<PurchaseLedger> =
-        combine(purchases, tickets, draws) { ps, ts, draws ->
-            ledgerOf(ps, ts.associateBy { it.id }, draws.asReversed())
-        }
+        combine(purchases, settlements) { ps, settled -> ledgerOf(ps, settled) }
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PurchaseLedger(0, 0, 0L, 0L, emptyList()))
 
     /** 购票日历：购买日期 → 当日最高信号标记。 */
     val calendarMarks: StateFlow<Map<LocalDate, DayMark>> =
-        combine(purchases, tickets, draws) { ps, ts, ds ->
-            dayMarksOf(ps, ts.associateBy { it.id }, ds.asReversed())
-        }
+        combine(purchases, settlements) { ps, settled -> dayMarksOf(ps, settled) }
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
@@ -430,16 +455,14 @@ enum class DayMark { NONE, PENDING, MISS, WIN }
 /** 购买日期 → 当日标记；同一天多笔取信息量最大的一个（中奖 > 未中 > 待开奖）。 */
 fun dayMarksOf(
     purchases: List<Purchase>,
-    ticketsById: Map<Long, Ticket>,
-    drawsAsc: List<Draw>,
+    outcomes: Map<Long, PurchaseOutcome>,
 ): Map<LocalDate, DayMark> {
     val out = HashMap<LocalDate, DayMark>()
     for (p in purchases) {
-        val ticket = ticketsById[p.ticketId] ?: continue
+        val o = outcomes[p.id] ?: continue
         // 与购买绑定同一口径：本地时区的购买日期
         val date = Instant.fromEpochMilliseconds(p.purchasedAtEpochMs)
             .toLocalDateTime(TimeZone.currentSystemDefault()).date
-        val o = outcomeOf(p, ticket, drawsAsc)
         val mark = when {
             o.isPending -> DayMark.PENDING
             o.hasWon -> DayMark.WIN

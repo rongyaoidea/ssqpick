@@ -94,5 +94,7 @@ data class TicketCheckResult(
     val tierAmounts: Map<PrizeTier, Long>,
 ) {
     val topTier: PrizeTier? get() = tierCounts.keys.maxByOrNull { it.rank }
-    val hasWon: Boolean get() = totalAmountYuan > 0
+
+    /** 按奖级判定：一二等奖是浮动奖，公告金额缺失时金额为 0，但奖级本身中了。 */
+    val hasWon: Boolean get() = tierCounts.isNotEmpty()
 }

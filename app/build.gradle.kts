@@ -111,6 +111,4 @@ dependencies {
     implementation(libs.koin.compose.viewmodel)
 
     testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.test.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
 }
