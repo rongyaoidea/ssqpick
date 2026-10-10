@@ -14,9 +14,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -24,6 +27,8 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
+import com.ssqpick.designsystem.sketch.SketchGeometry
+import com.ssqpick.designsystem.sketch.SketchPathCache
 import com.ssqpick.feature.machine.physics.Ball
 import com.ssqpick.feature.machine.physics.DrumWorld
 import kotlin.math.cos
@@ -71,7 +76,20 @@ fun DrumStage(
     val rim = MaterialTheme.colorScheme.outline
     val well = MaterialTheme.colorScheme.surfaceVariant
 
-    Canvas(modifier = modifier.fillMaxSize()) {
+    // SketchPathCache 是单槽缓存：红蓝两台鼓必须各持一份，
+    // 共用会在每帧交替命中失败、白白重算两条抖动圆。
+    val redCache = remember { SketchPathCache() }
+    val blueCache = remember { SketchPathCache() }
+
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            // 鼓内号码本来就看不清（注释见 drawBall），读屏直接报结果行：
+            // 这里只声明它是装饰性动画，不朗读 49 个球。
+            .semantics(mergeDescendants = true) {
+                contentDescription = "摇号动画，结果见下方号码行"
+            },
+    ) {
         // 读一次 frame，建立绘制依赖，保证每帧重绘
         frame.hashCode()
 
@@ -82,8 +100,14 @@ fun DrumStage(
         val redCenter = Offset(w * 0.29f, h * 0.44f)
         val blueCenter = Offset(w * 0.71f, h * 0.44f)
 
-        drawDrum(controller.redWorld, redCenter, drumR, RED_BALL, ink, rim, well, measurer)
-        drawDrum(controller.blueWorld, blueCenter, drumR, BLUE_BALL, ink, rim, well, measurer)
+        drawDrum(
+            controller.redWorld, redCenter, drumR, RED_BALL, ink, rim, well, measurer,
+            redCache, SketchGeometry.seedOf("drum-red"),
+        )
+        drawDrum(
+            controller.blueWorld, blueCenter, drumR, BLUE_BALL, ink, rim, well, measurer,
+            blueCache, SketchGeometry.seedOf("drum-blue"),
+        )
 
         // 摇号进度：一条极细的线。舞台里不引入第二种视觉语言（不用进度条控件）。
         controller.progress()?.let { (done, total) ->
@@ -116,6 +140,8 @@ private fun DrawScope.drawDrum(
     rim: Color,
     well: Color,
     measurer: TextMeasurer,
+    cache: SketchPathCache,
+    seed: Int,
 ) {
     drawCircle(color = well.copy(alpha = 0.6f), radius = radius, center = center)
 
@@ -144,17 +170,22 @@ private fun DrawScope.drawDrum(
         drawBall(b, center, radius, ballR, ballColor, measurer)
     }
 
-    // 玻璃鼓壳：发丝线 + 左上一道高光弧。
-    // 参考作品明确禁止 glow，所以这里是"线"而不是"光"。
-    drawCircle(color = rim, radius = radius, center = center, style = Stroke(width = 1.6f))
+    // 手绘鼓壳：一圈抖动墨线代替正圆。抖动 0.022 看起来像手画的圆，再大就明显歪了。
+    // 参考作品禁止 glow，所以这里靠"线"而不是"光"塑形。
+    drawPath(
+        path = cache.circle(center, radius, wobble = 0.022f, seed = seed),
+        color = rim,
+        style = Stroke(width = 2.1f, cap = StrokeCap.Round),
+    )
+    // 左上一道短高光，像玻璃上的一道反光
     drawArc(
-        color = Color.White.copy(alpha = 0.5f),
+        color = Color.White.copy(alpha = 0.75f),
         startAngle = 200f,
-        sweepAngle = 70f,
+        sweepAngle = 62f,
         useCenter = false,
-        topLeft = Offset(center.x - radius * 0.84f, center.y - radius * 0.84f),
-        size = Size(radius * 1.68f, radius * 1.68f),
-        style = Stroke(width = radius * 0.06f),
+        topLeft = Offset(center.x - radius * 0.8f, center.y - radius * 0.8f),
+        size = Size(radius * 1.6f, radius * 1.6f),
+        style = Stroke(width = radius * 0.055f, cap = StrokeCap.Round),
     )
 
     // 三道随鼓旋转的刻度，让"在转"看得见

@@ -1,9 +1,6 @@
 package com.ssqpick.feature.machine
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,35 +14,35 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssqpick.designsystem.component.BallRow
-import com.ssqpick.designsystem.component.EmptyHint
-import com.ssqpick.designsystem.component.InfoChip
-import com.ssqpick.designsystem.component.ScreenColumn
-import com.ssqpick.designsystem.component.SsqCard
+import com.ssqpick.designsystem.sketch.SketchButton
+import com.ssqpick.designsystem.sketch.SketchCard
+import com.ssqpick.designsystem.sketch.SketchChip
+import com.ssqpick.designsystem.sketch.SketchDivider
+import com.ssqpick.designsystem.sketch.SketchMetaRow
+import com.ssqpick.designsystem.sketch.SketchPalette
+import com.ssqpick.designsystem.sketch.SketchSectionTitle
+import com.ssqpick.designsystem.sketch.sketchBox
 import com.ssqpick.designsystem.theme.SsqDimens
-import com.ssqpick.designsystem.theme.SsqMotion
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.OddsInfo
 
 /**
- * 摇号机主屏。
+ * 摇号机主屏（手绘风格）。
  *
- * 主题由 MainActivity 统一提供，这里不再包一层 SsqTheme。
- *
- * 整屏可滚动：舞台是 Compose `Canvas`，不像 SurfaceView 那样需要独立合成层，
- * 放进滚动容器完全安全——这正是从 3D 换到 2D 顺带解决的问题。
+ * 手绘只作用在外壳：卡片、边框、按钮、标签。**号码球保持规整实心**——
+ * 读清号码是这个应用的底线，抖动字形或歪圆会直接损害可用性。
  */
 @Composable
 fun MachineScreen(
@@ -58,58 +55,73 @@ fun MachineScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+            .background(SketchPalette.Canvas)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 14.dp),
     ) {
-        ScreenColumn {
-            SsqCard(
-                title = "摇号机",
-                trailing = { InfoChip(m.phaseLabel) },
+        Spacer(Modifier.height(10.dp))
+
+        SketchCard(seed = "machine", tilt = -0.3f) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                DrumStage(
-                    controller = viewModel.controller,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(SsqDimens.drumStageHeight)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                )
-
-                ResultStrip(m)
-
-                ActionBar(
-                    machine = m,
-                    saved = ui.saved,
-                    onStart = viewModel::start,
-                    onReset = viewModel::reset,
-                    onSave = viewModel::save,
-                )
-
-                ui.saveMessage?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                SketchSectionTitle("摇号机")
+                SketchChip(label = m.phaseLabel, seed = m.phaseLabel)
             }
 
-            ModeSelector(
-                selected = m.mode,
-                enabled = !m.isRunning,
-                onSelect = viewModel::selectMode,
+            Spacer(Modifier.height(12.dp))
+
+            DrumStage(
+                controller = viewModel.controller,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(SsqDimens.drumStageHeight)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SketchPalette.Paper),
             )
 
-            HistoryPanel(ui.history)
+            Spacer(Modifier.height(14.dp))
+            SketchDivider(seed = "machine-divider")
+            Spacer(Modifier.height(12.dp))
+
+            ResultStrip(m)
+
+            Spacer(Modifier.height(16.dp))
+            ActionBar(
+                machine = m,
+                saved = ui.saved,
+                onStart = viewModel::start,
+                onReset = viewModel::reset,
+                onSave = viewModel::save,
+            )
+
+            ui.saveMessage?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SketchPalette.InkSoft,
+                )
+            }
         }
+
+        Spacer(Modifier.height(14.dp))
+        ModeSelector(
+            selected = m.mode,
+            enabled = !m.isRunning,
+            onSelect = viewModel::selectMode,
+        )
+
+        Spacer(Modifier.height(14.dp))
+        HistoryPanel(ui.history)
+
+        Spacer(Modifier.height(24.dp))
     }
 }
 
-/**
- * 结果条：6 红 + 1 蓝，一行呈现。
- *
- * 这是全屏唯一需要"读清号码"的地方，所以球最大；
- * 鼓里的球只负责动感，号码在球够大时才显示。
- */
+/** 结果条：6 红 + 1 蓝，一行呈现，全屏唯一需要读清号码的地方。 */
 @Composable
 private fun ResultStrip(m: MachineUiState) {
     Row(
@@ -126,7 +138,7 @@ private fun ResultStrip(m: MachineUiState) {
         Text(
             "+",
             style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = SketchPalette.Ink,
             modifier = Modifier.padding(horizontal = 8.dp),
         )
         BallRow(
@@ -136,9 +148,17 @@ private fun ResultStrip(m: MachineUiState) {
             placeholderCount = m.mode.blueCount,
         )
     }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = "${m.mode.label} · ${m.betCount} 注 · ${m.priceYuan} 元",
+        style = MaterialTheme.typography.bodySmall,
+        color = SketchPalette.InkSoft,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+    )
 }
 
-/** 主操作区。按钮文案随状态变化，比"一个按钮配三种不可见的禁用理由"清楚。 */
+/** 主操作区。按钮文案随状态变化，而不是一个按钮配三种不可见的禁用理由。 */
 @Composable
 private fun ActionBar(
     machine: MachineUiState,
@@ -147,39 +167,47 @@ private fun ActionBar(
     onReset: () -> Unit,
     onSave: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         when {
             machine.isComplete -> {
-                Button(onClick = onSave, enabled = !saved, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        if (saved) {
-                            "已保存"
-                        } else {
-                            "保存这注（${machine.betCount} 注 / ${machine.priceYuan} 元）"
-                        },
-                    )
-                }
-                OutlinedButton(onClick = onReset, modifier = Modifier.fillMaxWidth()) {
-                    Text("重新摇")
-                }
+                SketchButton(
+                    label = if (saved) "已保存" else "保存这注",
+                    onClick = onSave,
+                    enabled = !saved,
+                    seed = "save",
+                    tilt = -0.3f,
+                )
+                SketchButton(
+                    label = "重新摇",
+                    onClick = onReset,
+                    filled = false,
+                    seed = "reset",
+                    tilt = 0.4f,
+                )
             }
 
             machine.isRunning -> {
-                Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
-                    Text(machine.phaseLabel)
-                }
+                SketchButton(
+                    label = machine.phaseLabel,
+                    onClick = {},
+                    enabled = false,
+                    seed = "running",
+                )
             }
 
             else -> {
-                Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-                    Text("开始摇号")
-                }
+                SketchButton(
+                    label = "开始摇号",
+                    onClick = onStart,
+                    seed = "start",
+                    tilt = -0.5f,
+                )
             }
         }
     }
 }
 
-/** 投注方式。用卡片而不是 Chip：长文案（"大复式 10 红 4 蓝"）不会被截断。 */
+/** 投注方式：手绘墨线框，选中的是实心。 */
 @Composable
 private fun ModeSelector(
     selected: DrawMode,
@@ -187,52 +215,28 @@ private fun ModeSelector(
     onSelect: (DrawMode) -> Unit,
 ) {
     Column {
-        Text(
-            "投注方式",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
+        SketchSectionTitle("投注方式")
+        Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             DrawMode.entries.forEach { mode ->
                 val isSelected = mode == selected
-                val borderColor by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outline
-                    },
-                    animationSpec = spring(
-                        dampingRatio = SsqMotion.SPRING_DAMPING,
-                        stiffness = SsqMotion.SPRING_STIFFNESS,
-                    ),
-                    label = "modeBorder",
-                )
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(56.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            if (isSelected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
+                        .rotate(if (isSelected) -0.8f else 0.6f)
+                        .sketchBox(
+                            seed = mode.name,
+                            filled = isSelected,
+                            enabled = enabled,
+                            onClick = { onSelect(mode) },
                         )
-                        .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-                        .clickable(enabled = enabled) { onSelect(mode) }
-                        .padding(horizontal = 6.dp),
+                        .padding(horizontal = 4.dp, vertical = 10.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         mode.label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = if (isSelected) SketchPalette.Paper else SketchPalette.InkSoft,
                         textAlign = TextAlign.Center,
                         maxLines = 2,
                     )
@@ -244,35 +248,41 @@ private fun ModeSelector(
 
 @Composable
 private fun HistoryPanel(record: HistoryRecord?) {
-    SsqCard(title = "历史战绩", container = MaterialTheme.colorScheme.surfaceVariant) {
+    SketchCard(seed = "history", tilt = 0.25f) {
+        SketchSectionTitle("历史战绩")
+        Spacer(Modifier.height(8.dp))
         if (record == null) {
-            EmptyHint("摇一注之后，这里会告诉你这组号码在全部历史开奖里中过什么。")
+            Text(
+                "摇一注之后，这里会告诉你这组号码在全部历史开奖里中过什么。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.InkSoft,
+            )
         } else {
-            Text(OddsInfo.describe(record), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                OddsInfo.describe(record),
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.Ink,
+            )
+            Spacer(Modifier.height(8.dp))
             if (record.hasEverWon) {
-                Text(
-                    "第 ${record.highestTierDrawCode} 期（${record.highestTierDate}）",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    "当期单注奖金 ${record.highestTierAmountYuan} 元",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                SketchMetaRow("中过", record.highestTier!!.label, valueColor = SketchPalette.RedInk)
+                SketchMetaRow("期号", record.highestTierDrawCode ?: "—")
+                SketchMetaRow("单注奖金", "${record.highestTierAmountYuan} 元")
             } else {
-                // 把"没中过"的概率背景讲清楚，避免用户误以为某组号"冷"或"旺"
+                SketchMetaRow("最好命中", "${record.bestRedMatches} 个红球")
+                Spacer(Modifier.height(4.dp))
                 Text(
                     OddsInfo.logProbabilityText(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = SketchPalette.InkSoft,
                 )
                 Text(
-                    "一注在 ${record.checkedDraws} 期里出现的概率只有 " +
+                    "一注在 ${record.checkedDraws} 期里出现过的概率只有 " +
                         "%.4f%%，没中过任何奖才是正常结果。".format(
                             OddsInfo.appearProbability(record.checkedDraws) * 100,
                         ),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = SketchPalette.InkSoft,
                 )
             }
         }

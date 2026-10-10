@@ -102,6 +102,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.work.runtime)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     implementation(libs.koin.android)

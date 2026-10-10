@@ -26,13 +26,14 @@ import androidx.core.view.WindowCompat
  * 界面其余部分保持中性——这样球是画面里唯一的彩色，注意力自然落到号码上。
  */
 private object Palette {
-    // 浅色（主）：暖灰而非蓝灰，接近纸面
-    val Paper = Color(0xFFF4F1EC)
-    val Card = Color(0xFFFFFFFF)
-    val Ink = Color(0xFF141414)
-    val InkSoft = Color(0xFF6B6660)
-    val Hairline = Color(0xFFE3DED6)
-    val Well = Color(0xFFEAE6DF)
+    // 浅色（主）：纸墨配色，与 designsystem 的 SketchPalette 保持一致
+    val Paper = Color(0xFFFBF8F2)
+    val Card = Color(0xFFFBF8F2)
+    val Canvas = Color(0xFFF1ECE2)
+    val Ink = Color(0xFF23201C)
+    val InkSoft = Color(0xFF6E675E)
+    val Hairline = Color(0xFFB9B0A3)
+    val Well = Color(0xFFEAE4D8)
     val Alert = Color(0xFFB3261E)
 
     // 深色：同一套骨相的夜间版本

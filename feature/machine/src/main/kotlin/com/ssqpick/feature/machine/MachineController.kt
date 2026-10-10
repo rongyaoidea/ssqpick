@@ -70,7 +70,7 @@ data class MachineUiState(
  * 先用 [NumberGenerator] 抽好号码，再由物理层把这些球"引导"到出口槽，
  * 看起来像自然摇出，统计上保证每个组合等概率。
  *
- * 推进方式：GL 线程每帧回调 [advance]，物理与状态机都在该线程同步执行，
+ * 推进方式：界面帧回调每帧调用 [advance]，物理与状态机都在该回调里同步执行，
  * 不开协程，避免两个线程抢同一份球状态。
  */
 class MachineController {
@@ -148,7 +148,7 @@ class MachineController {
         b.vz = 0f
     }
 
-    /** 每帧推进（在 GL 线程调用）。 */
+    /** 每帧推进（界面帧回调里调用，物理与状态机同步执行，不开协程）。 */
     fun advance(dt: Float) {
         val s = _state.value
         redWorld.step(dt)

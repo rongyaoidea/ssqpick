@@ -27,7 +27,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
-        run: ./gradlew :core:model:test :feature:machine:testDebugUnitTest --stacktrace --console=plain
+        run: ./gradlew :core:model:test :feature:machine:testDebugUnitTest :feature:ticket:testDebugUnitTest --stacktrace --console=plain
 
       - name: Upload test report
         if: failure()

@@ -1,7 +1,6 @@
 package com.ssqpick.designsystem.component
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -13,10 +12,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,9 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +40,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ssqpick.designsystem.sketch.SketchGeometry
+import com.ssqpick.designsystem.sketch.SketchPalette
+import com.ssqpick.designsystem.sketch.SketchPathCache
 import com.ssqpick.designsystem.theme.SsqMotion
 
 /**
@@ -71,6 +74,8 @@ fun NumberBall(
     modifier: Modifier = Modifier,
     size: Dp = 42.dp,
     selected: Boolean = true,
+    /** 胆码标记：选中态外再套一圈球色手绘环。字形不动，只加装饰。 */
+    bold: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val base = if (isBlue) BallColors.Blue else BallColors.Red
@@ -93,15 +98,6 @@ fun NumberBall(
         label = "ballScale",
     )
 
-    val ringWidth by animateDpAsState(
-        targetValue = if (selected) 0.dp else 1.dp,
-        animationSpec = spring(
-            dampingRatio = SsqMotion.SPRING_DAMPING,
-            stiffness = SsqMotion.SPRING_STIFFNESS,
-        ),
-        label = "ballRing",
-    )
-
     // 号码切换时的短模糊：从 7dp 收敛到 0，器一瞬即逝，不拖节奏
     val blurRadius = remember { Animatable(0f) }
     var lastNumber by remember { mutableIntStateOf(number) }
@@ -114,7 +110,7 @@ fun NumberBall(
     }
 
     val fill = if (selected) {
-        // 极轻微的材质渐变：球是实体、不是装饰，不违反"禁止 UI chrome 渐变"
+        // 极轻微的材质渐变：球是实体、不是装饰，不违反"禁止 UI 控件渐变"
         Brush.radialGradient(
             colors = listOf(lift.copy(alpha = 0.5f), base),
             radius = size.value * 0.85f,
@@ -128,13 +124,39 @@ fun NumberBall(
         )
     }
 
+    val ringCache = remember { SketchPathCache() }
+    // 胆码外环另起一份缓存：单槽缓存一帧画两条不同路径会次次失配
+    // （鼓面双鼓共用一份缓存是同一个教训，见 DrumStage）。
+    val boldCache = remember { SketchPathCache() }
+    // 描边宽度在 drawBehind 内部换算——只有 DrawScope 才是 Density 作用域
+    val strokeDp: Dp = if (selected) 1.1.dp else 1.8.dp
+    val ringInk = if (selected) SketchPalette.Ink else SketchPalette.InkSoft
+    val ringSeed = remember(number, isBlue) { SketchGeometry.seedOf(number, isBlue) }
+    val boldSeed = remember(number, isBlue) { SketchGeometry.seedOf(number, isBlue, "bold") }
+
     Box(
         modifier = modifier
             .size(size)
             .scale(scale)
             .clip(CircleShape)
             .background(fill)
-            .border(ringWidth, MaterialTheme.colorScheme.outline, CircleShape)
+            // 手绘描边：实心圆保持规整（号码要读得清），外面套一圈抖动的墨线。
+            // 圆心相对半径的抖动 0.035 看起来像手画的，再大就明显歪了。
+            .drawBehind {
+                val r = this.size.minDimension / 2f
+                drawPath(
+                    path = ringCache.circle(center, r, wobble = 0.035f, seed = ringSeed),
+                    color = if (selected) ringInk.copy(alpha = 0.55f) else ringInk,
+                    style = Stroke(width = strokeDp.toPx(), cap = StrokeCap.Round),
+                )
+                if (bold && selected) {
+                    drawPath(
+                        path = boldCache.circle(center, r + 3.2.dp.toPx(), wobble = 0.05f, seed = boldSeed),
+                        color = base,
+                        style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round),
+                    )
+                }
+            }
             .then(
                 if (onClick != null) {
                     Modifier.clickable(
@@ -150,6 +172,7 @@ fun NumberBall(
                 contentDescription = buildString {
                     append(if (isBlue) "蓝球 " else "红球 ")
                     append(number)
+                    if (bold && selected) append("，胆码")
                     if (!selected) append("，未选中")
                 }
             },
@@ -201,22 +224,4 @@ fun BallRow(
             }
         }
     }
-}
-
-/** 小标签，例如"复式 8+3"。 */
-@Composable
-fun InfoChip(
-    text: String,
-    modifier: Modifier = Modifier,
-    container: Color = MaterialTheme.colorScheme.surfaceVariant,
-) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(container)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    )
 }

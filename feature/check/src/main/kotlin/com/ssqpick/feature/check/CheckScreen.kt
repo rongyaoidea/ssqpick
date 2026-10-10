@@ -1,5 +1,6 @@
 package com.ssqpick.feature.check
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,10 +9,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,15 +21,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssqpick.designsystem.component.BallRow
-import com.ssqpick.designsystem.component.EmptyHint
-import com.ssqpick.designsystem.component.InfoChip
-import com.ssqpick.designsystem.component.NumberBall
-import com.ssqpick.designsystem.component.ScreenColumn
-import com.ssqpick.designsystem.component.SsqCard
+import com.ssqpick.designsystem.sketch.SketchButton
+import com.ssqpick.designsystem.sketch.SketchCard
+import com.ssqpick.designsystem.sketch.SketchChip
+import com.ssqpick.designsystem.sketch.SketchDivider
+import com.ssqpick.designsystem.sketch.SketchPalette
+import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.theme.SsqDimens
 
 /**
  * 对奖：拉取最新一期开奖，核对全部已保存号码并算出总奖金。
+ *
+ * 手绘只作用在外壳；开奖号码与金额数字保持清晰，中奖标签用荧光笔底。
  */
 @Composable
 fun CheckScreen(
@@ -39,40 +42,53 @@ fun CheckScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .background(SketchPalette.Canvas),
         contentPadding = PaddingValues(vertical = 8.dp),
     ) {
         item {
-            ScreenColumn {
+            Column(Modifier.padding(horizontal = 14.dp)) {
+                Spacer(Modifier.height(6.dp))
                 TargetCard(
                     target = ui.target,
                     message = ui.message,
                     checking = ui.checking,
                     onSync = viewModel::syncAndCheck,
                 )
+                Spacer(Modifier.height(14.dp))
             }
         }
 
         item {
-            ScreenColumn {
+            Column(Modifier.padding(horizontal = 14.dp)) {
                 SummaryCard(
                     totalAmountYuan = ui.totalAmountYuan,
                     ticketCount = ui.results.size,
                     winningCount = ui.winningTickets,
                 )
+                Spacer(Modifier.height(14.dp))
             }
         }
 
         if (ui.results.isEmpty()) {
             item {
-                ScreenColumn {
-                    EmptyHint("点上面的“同步并对奖”，核对本地保存的全部号码。")
+                Column(Modifier.padding(horizontal = 14.dp)) {
+                    SketchCard(seed = "check-empty", tilt = 0.3f) {
+                        Text(
+                            "点上面的“同步并对奖”，核对本地保存的全部号码。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = SketchPalette.InkSoft,
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
                 }
             }
         } else {
             items(ui.results, key = { it.ticketId }) { r ->
-                ScreenColumn {
+                Column(Modifier.padding(horizontal = 14.dp)) {
                     ResultCard(r, viewModel::tierLines)
+                    Spacer(Modifier.height(12.dp))
                 }
             }
         }
@@ -86,28 +102,38 @@ private fun TargetCard(
     checking: Boolean,
     onSync: () -> Unit,
 ) {
-    SsqCard(title = "开奖核对", container = MaterialTheme.colorScheme.surfaceVariant) {
+    SketchCard(seed = "check-target", tilt = -0.3f) {
+        SketchSectionTitle("开奖核对")
+        Spacer(Modifier.height(8.dp))
         Text(
             target?.let { "核对目标：第 ${it.code} 期 ${it.date}" } ?: "尚无开奖数据",
             style = MaterialTheme.typography.bodyMedium,
+            color = SketchPalette.Ink,
         )
         if (target != null) {
+            Spacer(Modifier.height(8.dp))
             BallRow(numbers = target.red.sorted(), isBlue = false, ballSize = SsqDimens.ballSizeCompact)
+            Spacer(Modifier.height(4.dp))
             BallRow(numbers = listOf(target.blue), isBlue = true, ballSize = SsqDimens.ballSizeCompact)
         }
         message?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = SketchPalette.Ink)
         }
+        Spacer(Modifier.height(6.dp))
         Text(
             "一、二等奖为浮动奖金，金额取开奖公告的实付额；三至六等为固定奖金。",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = SketchPalette.InkSoft,
         )
-        Button(
+        Spacer(Modifier.height(10.dp))
+        SketchButton(
+            label = if (checking) "同步中…" else "同步并对奖",
             onClick = onSync,
             enabled = !checking,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (checking) "同步中…" else "同步并对奖") }
+            seed = "check-sync",
+            tilt = -0.4f,
+        )
     }
 }
 
@@ -117,20 +143,18 @@ private fun SummaryCard(
     ticketCount: Int,
     winningCount: Int,
 ) {
-    SsqCard(title = "合计中奖") {
+    SketchCard(seed = "check-summary", tilt = 0.25f) {
+        SketchSectionTitle("合计中奖")
+        Spacer(Modifier.height(8.dp))
         Text(
             "%,d 元".format(totalAmountYuan),
             style = MaterialTheme.typography.displaySmall,
-            color = if (totalAmountYuan > 0) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+            color = if (totalAmountYuan > 0) SketchPalette.RedInk else SketchPalette.InkSoft,
         )
         Text(
             "$ticketCount 注中有 $winningCount 注中奖",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = SketchPalette.InkSoft,
         )
     }
 }
@@ -140,39 +164,52 @@ private fun ResultCard(
     result: com.ssqpick.model.TicketCheckResult,
     tierLines: (com.ssqpick.model.TicketCheckResult) -> List<String>,
 ) {
-    SsqCard(
-        trailing = {
-            InfoChip(
-                text = if (result.hasWon) {
+    SketchCard(
+        seed = "check-${result.ticketId}",
+        tilt = if (result.ticketId % 2L == 0L) 0.25f else -0.25f,
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "号码 #${result.ticketId}",
+                style = MaterialTheme.typography.titleMedium,
+                color = SketchPalette.Ink,
+            )
+            SketchChip(
+                label = if (result.hasWon) {
                     "${result.topTier?.label} · %,d 元".format(result.totalAmountYuan)
                 } else {
                     "未中奖"
                 },
-                container = if (result.hasWon) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
+                seed = "check-chip-${result.ticketId}-${result.hasWon}",
+                fill = if (result.hasWon) SketchPalette.Highlighter else null,
             )
-        },
-    ) {
-        Text("号码 #${result.ticketId}", style = MaterialTheme.typography.titleMedium)
+        }
+        Spacer(Modifier.height(8.dp))
         if (result.hasWon) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 tierLines(result).forEach { line ->
-                    Text(line, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        line,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = SketchPalette.Ink,
+                    )
                 }
-                HorizontalDivider()
+                SketchDivider(seed = "check-div-${result.ticketId}")
                 Text(
                     "小计 %,d 元（共 ${result.winningBetCount} 注）".format(result.totalAmountYuan),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = SketchPalette.Ink,
                 )
             }
         } else {
             Text(
                 "本期未命中任何奖级。",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = SketchPalette.InkSoft,
             )
         }
     }

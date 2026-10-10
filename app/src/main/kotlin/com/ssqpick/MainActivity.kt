@@ -34,6 +34,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.ssqpick.designsystem.sketch.SketchDivider
+import com.ssqpick.designsystem.sketch.SketchPalette
 import com.ssqpick.designsystem.theme.SsqTheme
 import com.ssqpick.feature.check.CheckScreen
 import com.ssqpick.feature.check.CheckViewModel
@@ -55,8 +57,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            // 主题只在这里包一层，feature 屏幕直接消费 MaterialTheme
-            SsqTheme {
+            // 主题只在这里包一层，feature 屏幕直接消费 MaterialTheme。
+            // 纸墨手绘是浅色语言（纸面暖白 + 墨线），深色下会整套反白失效，
+            // 所以这里锁定浅色：整个应用就是一张纸，不跟随系统深色。
+            SsqTheme(darkTheme = false) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
@@ -157,15 +161,16 @@ private fun AppHeader(active: TopTab) {
                 Text(
                     active.title,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = SketchPalette.InkSoft,
                 )
             }
             Spacer(Modifier.padding(top = 2.dp))
             Text(
                 "选号由本地 CSPRNG 完成 · 摇号机只负责演示结果",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = SketchPalette.InkSoft,
             )
+            SketchDivider(seed = "app-header", ink = SketchPalette.InkFaint)
         }
     }
 }
