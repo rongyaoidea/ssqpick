@@ -43,7 +43,7 @@ import org.koin.compose.viewmodel.koinViewModel
 
 /** 三个顶层页。 */
 private enum class TopTab(val route: String, val label: String, val title: String) {
-    MACHINE("machine", "摇号", "3D 摇号机"),
+    MACHINE("machine", "摇号", "摇号机"),
     TICKET("ticket", "选号", "选号"),
     CHECK("check", "对奖", "对奖"),
 }
@@ -151,7 +151,7 @@ private fun AppHeader(active: TopTab) {
             }
             Spacer(Modifier.padding(top = 2.dp))
             Text(
-                "选号由本地 CSPRNG 完成 · 3D 摇号机只负责演示结果",
+                "选号由本地 CSPRNG 完成 · 摇号机只负责演示结果",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

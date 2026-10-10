@@ -1,6 +1,6 @@
 # 双色球选号机 (ssqpick)
 
-Android 应用：3D 摇号机选号、单式/复式投注、号码保存、历史战绩查询、官方开奖后自动对奖并计算金额。
+Android 应用：摇号机选号、单式/复式投注、号码保存、历史战绩查询、官方开奖后自动对奖并计算金额。
 
 > **关于"预测"的一句实话**：双色球每期开奖是独立随机事件，中一等奖概率恒为
 > `1 / C(33,6) / 16 = 1/17,721,088`。本应用不提供任何"预测模型"——
@@ -27,10 +27,10 @@ ssqpick/
 │   │   └── Repository.kt（DrawRepository / TicketRepository）
 │   └── designsystem/  Compose 主题与号码球组件
 └── feature/
-    ├── machine/       3D 摇号机
-    │   ├── physics/   DrumWorld —— 纯 Kotlin 刚体模拟（可单测）
-    │   ├── gl/        OpenGL ES 3.0 渲染（实例化绘制 + 纹理图集）
-    │   ├── MachineLayout / MachineController / MachineView / MachineScreen
+    ├── machine/       摇号机（Compose Canvas 2D + 纯 Kotlin 刚体物理）
+    │   ├── physics/   DrumWorld —— 无 Android 依赖的鼓内刚体模拟（可单测）
+    │   ├── DrumStage  Canvas 绘制：双鼓 + 深度排序的球 + 结果条
+    │   └── MachineController / MachineLayout / MachineScreen
     ├── ticket/       手选号码 + 已保存号码管理
     └── check/        对奖与奖金计算
 ```
@@ -52,7 +52,7 @@ ssqpick/
 正确性由 `TicketRulesTest.组合计数与暴力枚举一致` 保证——400 组随机票
 与"老老实实展开再逐注判定"的参照实现逐项比对。
 
-**3. 选号与表现分离。** 号码由 `SecureRandom` 决定，3D 机器只负责把结果演出来。
+**3. 选号与表现分离。** 号码由 `SecureRandom` 决定，摇号机只负责把结果演出来。
 物理引擎的碰撞动力学**不是**均匀随机源，直接拿"哪个球先掉出来"当结果会让号码分布
 带系统性偏差，反而破坏公平性。所以机器先按 CSPRNG 抽好，再物理引导这些球到出口槽。
 
@@ -79,7 +79,7 @@ ssqpick/
 | DI | Koin 4.2.2 |
 | 网络 | ktor 3.5.2（OkHttp 引擎） |
 | 数据库 | SQLDelight 2.3.2 |
-| 3D | OpenGL ES 3.0，实例化绘制 + 8×8 号码贴图图集 |
+| 3D/渲染 | Compose `Canvas`（2D，正交投影 + z 轴深度排序） |
 | 异步 | kotlinx.coroutines / Flow |
 | minSdk | 26 · compileSdk 37 |
 

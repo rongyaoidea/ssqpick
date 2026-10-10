@@ -40,3 +40,27 @@ Java 相关进程若报 `Failed to mark memory page as executable`，需要
 
 改 `TicketRules` 的任何逻辑，必须先跑 `组合计数与暴力枚举一致`——
 它把解析式和朴素展开实现逐项比对，是这套对奖逻辑唯一的安全网。
+
+## 摇号机：必须是 2D，不要改回 OpenGL
+
+`DrumStage` 用 Compose `Canvas` 画，**不要**换回 `GLSurfaceView`。3D 方案在真机上
+完全空白，原因有三层（都是实测踩过的）：
+
+1. `SurfaceView` 的 surface 由系统单独合成，**不跟随父视图滚动**，
+   放进 `verticalScroll` / `LazyColumn` 会渲染错位甚至全黑；
+2. `onResume()` 只在生命周期**状态切换**时回调，Compose 合成时宿主已 RESUMED，
+   监听器不会重放事件，渲染线程因此从未启动；
+3. 还额外依赖设备 GLES 3.0、EGL 配置与着色器编译，任一失败都是静默黑屏。
+
+`Canvas` 没有这些失败面：无独立 surface、无 EGL、无着色器，
+Compose 能画出界面它就能画出机器，整屏可滚动也安全。
+
+物理层 `DrumWorld` 与渲染方式无关（纯 Kotlin，无 Android 依赖，有独立单测），
+可以放心复用。
+
+## 设计纪律
+
+界面遵循 `awesome-opus-5.5-video` 技能里 Motion/UI 案例的设计约束，
+详见 `UI_UX.md` 的"设计纪律"一节。要点：暖灰画布、黑白灰控件、
+饱和色只给球（红蓝本身是语义色）；弹簧动效且过冲极小（阻尼 0.86），
+**禁止 bounce / glow / 粒子 / UI 控件渐变**。布线与新增动效前先读那一节。

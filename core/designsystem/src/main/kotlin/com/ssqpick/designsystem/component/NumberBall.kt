@@ -1,23 +1,34 @@
 package com.ssqpick.designsystem.component
 
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -29,67 +40,118 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ssqpick.designsystem.theme.SsqMotion
 
-/** 红球/蓝球的颜色 token。 */
+/**
+ * 红球 / 蓝球的语义色。
+ *
+ * 这是整个界面**唯一**的饱和色来源。参考作品的纪律是"黑白灰组件 + 单一强调色"；
+ * 在彩票应用里红蓝本身就是语义（红球/蓝球），所以让它们独家承担全部色彩，
+ * 界面其余部分保持中性——球因此成为画面里唯一醒目的东西。
+ */
 object BallColors {
     val Red = Color(0xFFE23A2E)
     val Blue = Color(0xFF2C6BD4)
-    val RedLight = Color(0xFFFF7A6B)
-    val BlueLight = Color(0xFF6FA0FF)
-    val UnselectedRed = Color(0xFF3A1F1E)
-    val UnselectedBlue = Color(0xFF1E2B42)
+    val RedLift = Color(0xFFFF6A5A)
+    val BlueLift = Color(0xFF6BA0F5)
 }
 
 /**
- * 一个摇奖球。
+ * 一个号码球。
  *
- * - [selected] 为 false 时渲染暗色轮廓态，用于"未选中"的号码；
- * - 字号直接由球直径推导，不再用 `44.dp` 基准做比例缩放（小号球会被压得不可读）；
- * - 无障碍朗读的是"红球 07"而不是装饰本身。
+ * 动效遵循参考作品的纪律："springs everywhere, a tiny overshoot at most"——
+ * 弹簧而非缓动曲线，过冲极小（阻尼 0.86），明确禁止 bounce；
+ * 号码变化时配一次极短模糊（"content swaps with a quick blur"），
+ * 避免两个数字在同一位置重叠。
  */
 @Composable
 fun NumberBall(
     number: Int,
     isBlue: Boolean,
     modifier: Modifier = Modifier,
-    size: Dp = 44.dp,
+    size: Dp = 42.dp,
     selected: Boolean = true,
+    onClick: (() -> Unit)? = null,
 ) {
     val base = if (isBlue) BallColors.Blue else BallColors.Red
-    val light = if (isBlue) BallColors.BlueLight else BallColors.RedLight
-    val dim = if (isBlue) BallColors.UnselectedBlue else BallColors.UnselectedRed
+    val lift = if (isBlue) BallColors.BlueLift else BallColors.RedLift
 
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+
+    // 选中态：弹簧推到目标，带一点过冲；未选中压到 0.88 倍
     val scale by animateFloatAsState(
-        targetValue = if (selected) 1f else 0.9f,
-        animationSpec = tween(140),
+        targetValue = when {
+            pressed -> 0.94f
+            selected -> 1f
+            else -> 0.88f
+        },
+        animationSpec = spring(
+            dampingRatio = SsqMotion.SPRING_DAMPING,
+            stiffness = SsqMotion.SPRING_STIFFNESS,
+        ),
         label = "ballScale",
     )
-    val ring by animateColorAsState(
-        targetValue = if (selected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant,
-        animationSpec = tween(140),
-        label = "ballRing",
-    )
+
     val ringWidth by animateDpAsState(
         targetValue = if (selected) 0.dp else 1.dp,
-        animationSpec = tween(140),
-        label = "ballRingWidth",
+        animationSpec = spring(
+            dampingRatio = SsqMotion.SPRING_DAMPING,
+            stiffness = SsqMotion.SPRING_STIFFNESS,
+        ),
+        label = "ballRing",
     )
+
+    // 号码切换时的短模糊：从 7dp 收敛到 0，器一瞬即逝，不拖节奏
+    val blurRadius = remember { Animatable(0f) }
+    var lastNumber by remember { mutableIntStateOf(number) }
+    LaunchedEffect(number) {
+        if (number != lastNumber) {
+            lastNumber = number
+            blurRadius.snapTo(7f)
+            blurRadius.animateTo(0f, tween(durationMillis = SsqMotion.SWAP_BLUR_MS))
+        }
+    }
+
+    val fill = if (selected) {
+        // 极轻微的材质渐变：球是实体、不是装饰，不违反"禁止 UI chrome 渐变"
+        Brush.radialGradient(
+            colors = listOf(lift.copy(alpha = 0.5f), base),
+            radius = size.value * 0.85f,
+        )
+    } else {
+        Brush.radialGradient(
+            colors = listOf(
+                MaterialTheme.colorScheme.surfaceVariant,
+                MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        )
+    }
 
     Box(
         modifier = modifier
             .size(size)
             .scale(scale)
             .clip(CircleShape)
-            .background(
-                if (selected) {
-                    Brush.radialGradient(listOf(light, base))
+            .background(fill)
+            .border(ringWidth, MaterialTheme.colorScheme.outline, CircleShape)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        onClick = onClick,
+                    )
                 } else {
-                    Brush.radialGradient(listOf(dim, dim))
+                    Modifier
                 },
             )
-            .border(ringWidth, ring, CircleShape)
             .clearAndSetSemantics {
-                contentDescription = if (isBlue) "蓝球 $number" else "红球 $number"
+                contentDescription = buildString {
+                    append(if (isBlue) "蓝球 " else "红球 ")
+                    append(number)
+                    if (!selected) append("，未选中")
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -98,29 +160,31 @@ fun NumberBall(
             color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            // 字号随球直径线性缩放：44dp -> 约 17sp，34dp -> 约 13sp
-            fontSize = (size.value * 0.385f).sp,
             maxLines = 1,
+            // 字号随球直径线性推导：42dp -> 约 16sp，36dp -> 约 14sp
+            fontSize = (size.value * 0.385f).sp,
+            // API 31+ 生效；更低版本自动忽略，不影响可读性
+            modifier = Modifier.blur(blurRadius.value.dp, BlurredEdgeTreatment.Unbounded),
         )
     }
 }
 
 /**
- * 一排等距的球，带出场动画。
+ * 一排等距球，空槽位表示"还没摇出来"。
  *
- * [placeholderCount] 多于 [numbers.size] 时，用空槽位表示"还没摇出来"。
+ * 用空槽位而不是隐藏：用户看到"6 个位置、出了 3 个"，比只看到 3 个球清楚得多。
  */
 @Composable
 fun BallRow(
     numbers: List<Int>,
     isBlue: Boolean,
     modifier: Modifier = Modifier,
-    ballSize: Dp = 44.dp,
+    ballSize: Dp = 42.dp,
     placeholderCount: Int = numbers.size,
 ) {
-    androidx.compose.foundation.layout.Row(
+    Row(
         modifier = modifier,
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(placeholderCount) { index ->
@@ -129,9 +193,8 @@ fun BallRow(
                 Box(
                     Modifier
                         .size(ballSize)
-                        .alpha(0.35f)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
                 )
             } else {
                 NumberBall(number = n, isBlue = isBlue, size = ballSize)
@@ -152,7 +215,7 @@ fun InfoChip(
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(container)
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )

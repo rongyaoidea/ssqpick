@@ -71,6 +71,11 @@ class DrumWorld(
     var maxPenetration: Float = 0f
         private set
 
+    /** 累计转角（度）。纯表现用：2D 舞台靠它画出随鼓旋转的刻度。 */
+    private var angle = 0f
+
+    fun angleDegrees(): Float = angle
+
     fun addBalls(count: Int, numberOffset: Int = 1) {
         repeat(count) { balls += Ball(number = it + numberOffset) }
     }
@@ -119,6 +124,7 @@ class DrumWorld(
             remaining -= h
             guard++
             stepCount++
+            angle = (angle + Math.toDegrees(omega.toDouble() * h.toDouble()).toFloat()) % 360f
         }
     }
 
