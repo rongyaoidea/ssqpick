@@ -1,6 +1,6 @@
 [versions]
 agp = "9.4.0"
-appVersion = "1.0.1"
+appVersion = "1.0.2"
 versionCode = "1"
 compileSdk = "37"
 minSdk = "26"
