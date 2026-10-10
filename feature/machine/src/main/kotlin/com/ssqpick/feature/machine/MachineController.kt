@@ -198,12 +198,16 @@ class MachineController {
 
             MachineUiState.Phase.BLUE_DRAWING -> {
                 emitCooldown += dt
-                if (emitCooldown >= EMIT_INTERVAL && emitIndex == 0) {
+                // 蓝球与红球同样逐颗发射：复式可能出 2~4 颗，
+                // 之前只发第一颗、进度从 0 跳到 N，表现层不一致。
+                if (emitCooldown >= EMIT_INTERVAL && emitIndex < pendingBlue.size) {
                     emitCooldown = 0f
+                    emitBlue(pendingBlue[emitIndex], emitIndex)
                     emitIndex++
-                    emitBlue(pendingBlue.first())
                 }
-                if (emitIndex > 0 && blueBalls[pendingBlue.first() - 1].settled) {
+                if (emitIndex >= pendingBlue.size &&
+                    pendingBlue.all { blueBalls[it - 1].settled }
+                ) {
                     _state.value = _state.value.copy(
                         phase = MachineUiState.Phase.COMPLETE,
                         blueNumbers = pendingBlue,
@@ -251,13 +255,13 @@ class MachineController {
         _state.value = _state.value.copy(redEmitted = index + 1)
     }
 
-    private fun emitBlue(number: Int) {
+    private fun emitBlue(number: Int, index: Int) {
         val ball = blueBalls[number - 1]
-        val t = MachineLayout.slotTarget(MachineLayout.BLUE, 0)
+        val t = MachineLayout.slotTarget(MachineLayout.BLUE, index)
         ball.attractX = t[0]
         ball.attractY = t[1]
         ball.attractZ = t[2]
         ball.escaping = true
-        _state.value = _state.value.copy(blueEmitted = 1)
+        _state.value = _state.value.copy(blueEmitted = index + 1)
     }
 }

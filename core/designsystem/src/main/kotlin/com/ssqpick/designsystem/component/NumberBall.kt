@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -80,6 +81,10 @@ fun NumberBall(
 ) {
     val base = if (isBlue) BallColors.Blue else BallColors.Red
     val lift = if (isBlue) BallColors.BlueLift else BallColors.RedLift
+
+    // 球径是固定 dp，字必须跟着球走而不是跟着系统字体走：
+    // 直接写 .sp 会在系统字体放大（无障碍 1.3x+）时让数字溢出球体。
+    val density = LocalDensity.current
 
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -184,8 +189,9 @@ fun NumberBall(
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             maxLines = 1,
-            // 字号随球直径线性推导：42dp -> 约 16sp，36dp -> 约 14sp
-            fontSize = (size.value * 0.385f).sp,
+            // 字号随球直径线性推导：42dp -> 约 16sp，36dp -> 约 14sp。
+            // 除以 fontScale：物理尺寸恒定，系统放大字体时数字不会溢出球。
+            fontSize = (size.value * 0.385f / density.fontScale).sp,
             // API 31+ 生效；更低版本自动忽略，不影响可读性
             modifier = Modifier.blur(blurRadius.value.dp, BlurredEdgeTreatment.Unbounded),
         )

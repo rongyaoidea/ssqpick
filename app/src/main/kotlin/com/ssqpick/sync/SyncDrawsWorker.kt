@@ -94,7 +94,9 @@ class SyncDrawsWorker(
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 UNIQUE_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                // UPDATE 而不是 KEEP：改了周期/约束后已装用户也能生效，
+                // 同时保留既有排期（不会从今天重新计时）
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request,
             )
         }

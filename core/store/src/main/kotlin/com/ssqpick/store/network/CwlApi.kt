@@ -55,13 +55,6 @@ class CwlApi(
         parameter("pageSize", FULL_HISTORY_COUNT)
     }
 
-    /** 按期号区间抓取。 */
-    suspend fun fetchRange(startCode: String, endCode: String): List<Draw> = request {
-        parameter("name", GAME)
-        parameter("issueStart", startCode)
-        parameter("issueEnd", endCode)
-    }
-
     private suspend fun request(
         longTimeout: Boolean = false,
         block: io.ktor.client.request.HttpRequestBuilder.() -> Unit,

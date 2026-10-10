@@ -12,10 +12,12 @@ import com.ssqpick.rules.simulateMonteCarlo
 import com.ssqpick.store.DrawRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,33 +31,41 @@ data class TrendData(
     val max: Float get() = sums.max()
 }
 
+/** 和值走势：取最新 [window] 期，按时间正序（库按日期倒序存，先 take 再反转）。 */
+fun trendOf(draws: List<Draw>, window: Int): TrendData? {
+    val latest = draws.take(window).reversed()
+    if (latest.isEmpty()) return null
+    val sums = latest.map { it.red.sum().toFloat() }
+    return TrendData(sums = sums, mean = sums.average().toFloat())
+}
+
 /** 数据页：开奖日程、冷热、形态、和值走势、模拟实验室。 */
 class DataViewModel(
     private val drawRepository: DrawRepository,
 ) : ViewModel() {
 
+    /**
+     * 开奖库共享订阅：stats/shape/trend 三条派生流共用一份，
+     * 不然每次库变更要跑 3 遍查询。
+     */
+    private val draws: SharedFlow<List<Draw>> = drawRepository.observeAll()
+        // replay=1：晚加入的派生流能立刻拿到最近一次库快照
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     val newest: StateFlow<Draw?> = drawRepository.observeNewest()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val stats: StateFlow<NumberStats?> = drawRepository.observeAll()
+    val stats: StateFlow<NumberStats?> = draws
         .map(::computeStats)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val shape: StateFlow<ShapeStats?> = drawRepository.observeAll()
+    val shape: StateFlow<ShapeStats?> = draws
         .map(::computeShape)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** 和值走势：取最新 [TREND_WINDOW] 期，按时间正序。库按日期倒序存，先 take 再反转。 */
-    val trend: StateFlow<TrendData?> = drawRepository.observeAll()
-        .map { draws ->
-            val latest = draws.take(TREND_WINDOW).reversed()
-            if (latest.isEmpty()) {
-                null
-            } else {
-                val sums = latest.map { it.red.sum().toFloat() }
-                TrendData(sums = sums, mean = sums.average().toFloat())
-            }
-        }
+    val trend: StateFlow<TrendData?> = draws
+        .map { trendOf(it, TREND_WINDOW) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _sim = MutableStateFlow<MonteCarloReport?>(null)

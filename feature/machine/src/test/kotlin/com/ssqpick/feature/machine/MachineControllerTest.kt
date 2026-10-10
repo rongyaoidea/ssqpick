@@ -30,4 +30,29 @@ class MachineControllerTest {
         assertEquals(6, c.state.value.redNumbers.toSet().size)
         assertEquals(1, c.state.value.blueNumbers.toSet().size)
     }
+
+    @Test
+    fun `复式蓝球逐颗出完才完成_红7蓝2`() {
+        val c = MachineController()
+        c.start(DrawMode.COMPOUND_SMALL)
+
+        var frames = 0
+        var sawSecondBlueWhileDrawing = false
+        while (c.state.value.phase != MachineUiState.Phase.COMPLETE && frames < 14_400) {
+            c.advance(1 / 60f)
+            frames++
+            // 旧行为：第二颗蓝球只在 COMPLETE 那一拍被跳过式地记为已出（0→N 跳变）。
+            // 新行为：出蓝阶段中就应看到 blueEmitted=2 的中间态。
+            if (c.state.value.phase == MachineUiState.Phase.BLUE_DRAWING &&
+                c.state.value.blueEmitted == 2
+            ) {
+                sawSecondBlueWhileDrawing = true
+            }
+        }
+
+        assertEquals(MachineUiState.Phase.COMPLETE, c.state.value.phase)
+        assertEquals(7, c.state.value.redNumbers.size)
+        assertEquals(2, c.state.value.blueNumbers.size)
+        org.junit.Assert.assertTrue(sawSecondBlueWhileDrawing)
+    }
 }

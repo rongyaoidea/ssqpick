@@ -36,7 +36,6 @@ interface DrawRepository {
     suspend fun all(): List<Draw>
     suspend fun count(): Long
     suspend fun insertAll(draws: List<Draw>)
-    suspend fun clear()
 
     /** 从官方接口增量同步。 */
     suspend fun syncFromOfficial(): SyncResult
@@ -77,10 +76,6 @@ class DrawRepositoryImpl(
                 )
             }
         }
-    }
-
-    override suspend fun clear() {
-        withContext(io) { drawQueries.deleteAllDraws().value }
     }
 
     /**
@@ -143,7 +138,6 @@ interface TicketRepository {
     suspend fun save(draft: TicketDraft, label: String? = null): Long
     suspend fun rename(id: Long, label: String?)
     suspend fun delete(id: Long)
-    suspend fun clear()
 }
 
 class TicketRepositoryImpl(
@@ -193,22 +187,10 @@ class TicketRepositoryImpl(
             }
         }
     }
-
-    override suspend fun clear() {
-        withContext(io) {
-            ticketQueries.transaction {
-                ticketQueries.selectAllTickets().executeAsList().forEach {
-                    purchaseQueries.deletePurchasesForTicket(it.id)
-                    ticketQueries.deleteTicket(it.id).value
-                }
-            }
-        }
-    }
 }
 
 interface PurchaseRepository {
     fun observeAll(): Flow<List<Purchase>>
-    suspend fun all(): List<Purchase>
 
     /** 未结算（还没有开奖结果）的购买，后台结算用。 */
     suspend fun unsettled(): List<Purchase>
@@ -223,10 +205,6 @@ class PurchaseRepositoryImpl(
 ) : PurchaseRepository {
 
     override fun observeAll(): Flow<List<Purchase>> = purchaseQueries.selectAllPurchases().asFlow().mapToList(io).map { rows -> rows.map { it.toPurchase() } }
-
-    override suspend fun all(): List<Purchase> = withContext(io) {
-        purchaseQueries.selectAllPurchases().executeAsList().map { it.toPurchase() }
-    }
 
     override suspend fun unsettled(): List<Purchase> = withContext(io) {
         purchaseQueries.selectUnsettledPurchases().executeAsList().map { it.toPurchase() }

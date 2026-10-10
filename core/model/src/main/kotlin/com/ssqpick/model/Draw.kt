@@ -48,8 +48,6 @@ data class Draw(
     val poolAmount: Long = 0,
     val prizeGrades: List<DrawPrizeGrade> = emptyList(),
 ) {
-    val salesBets: Long get() = sales / 2L
-
     fun gradeOf(tier: PrizeTier): DrawPrizeGrade? = prizeGrades.firstOrNull { it.tier == tier }
 }
 

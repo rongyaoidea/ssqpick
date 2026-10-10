@@ -11,12 +11,9 @@ data class HistoryRecord(
     /** 有史以来中过的最高奖级，null 表示从未中过任何奖。 */
     val highestTier: PrizeTier? = null,
     val highestTierDrawCode: String? = null,
-    val highestTierDate: String? = null,
     val highestTierAmountYuan: Long = 0L,
     /** 历史最佳红球命中数（0..6）。 */
     val bestRedMatches: Int = 0,
-    val bestRedMatchesDrawCode: String? = null,
-    val bestRedMatchesDate: String? = null,
     val blueMatchedAtBest: Boolean = false,
     /** 实际扫描的期数。 */
     val checkedDraws: Int = 0,
@@ -36,11 +33,8 @@ object HistoryScanner {
     fun scan(draft: TicketDraft, draws: List<Draw>): HistoryRecord {
         var bestTier: PrizeTier? = null
         var bestTierCode: String? = null
-        var bestTierDate: String? = null
         var bestTierAmount = 0L
         var bestRed = -1
-        var bestRedCode: String? = null
-        var bestRedDate: String? = null
         var bestRedBlue = false
         var total = 0L
 
@@ -52,8 +46,6 @@ object HistoryScanner {
             val drawBestRed = TicketRules.redMatchCounts(draft, draw).keys.maxOrNull() ?: -1
             if (drawBestRed > bestRed) {
                 bestRed = drawBestRed
-                bestRedCode = draw.code
-                bestRedDate = draw.date.toString()
                 val (blueHit, _) = TicketRules.blueMatchCounts(draft, draw)
                 bestRedBlue = blueHit > 0
             }
@@ -62,7 +54,6 @@ object HistoryScanner {
                 if (bestTier == null || drawBestTier.rank > bestTier.rank) {
                     bestTier = drawBestTier
                     bestTierCode = draw.code
-                    bestTierDate = draw.date.toString()
                     bestTierAmount = TicketRules.evaluate(draft, draw).first
                 }
             }
@@ -71,11 +62,8 @@ object HistoryScanner {
         return HistoryRecord(
             highestTier = bestTier,
             highestTierDrawCode = bestTierCode,
-            highestTierDate = bestTierDate,
             highestTierAmountYuan = bestTierAmount,
             bestRedMatches = if (bestRed < 0) 0 else bestRed,
-            bestRedMatchesDrawCode = bestRedCode,
-            bestRedMatchesDate = bestRedDate,
             blueMatchedAtBest = bestRedBlue,
             checkedDraws = draws.size,
             totalAmountYuan = total,
@@ -92,17 +80,10 @@ object HistoryScanner {
  */
 object OddsInfo {
 
-    const val RED_SPACE = 1_107_568L // C(33,6)
-    const val BLUE_SPACE = 16L
     const val TOTAL_SPACE = 17_721_088L // C(33,6)*16
-
-    val firstPrizeProbability: Double = 1.0 / TOTAL_SPACE
 
     /** 这个组合在历史 n 期里出现过的概率（各期独立）。 */
     fun appearProbability(draws: Int): Double = 1.0 - (1.0 - 1.0 / TOTAL_SPACE).pow(draws)
-
-    /** 该票在历史 n 期中一等奖的期望次数。 */
-    fun expectedFirstPrizeHits(betCount: Long, draws: Int): Double = betCount.toDouble() * draws / TOTAL_SPACE
 
     fun describe(record: HistoryRecord): String = buildString {
         append("在 ")

@@ -41,9 +41,11 @@ class CheckViewModel(
     val ui: StateFlow<CheckUiState> = _ui.asStateFlow()
 
     init {
+        // 目标期号跟随开奖库：后台 Worker 拉到新一期后，重进本页不用手动同步也能看到最新
         viewModelScope.launch {
-            val newest = drawRepository.all().maxByOrNull { it.date }
-            _ui.value = _ui.value.copy(target = newest)
+            drawRepository.observeNewest().collect { newest ->
+                _ui.value = _ui.value.copy(target = newest)
+            }
         }
     }
 

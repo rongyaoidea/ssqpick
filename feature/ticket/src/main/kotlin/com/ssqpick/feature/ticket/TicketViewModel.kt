@@ -27,12 +27,14 @@ import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.ssqpick.rules.backtest as runBacktest
@@ -54,7 +56,6 @@ data class TicketUiState(
     /** 机选填的号码：再点机选整体替换，手选的不动。 */
     val autoReds: Set<Int> = emptySet(),
     val autoBlues: Set<Int> = emptySet(),
-    val tickets: List<Ticket> = emptyList(),
     val syncMessage: String? = null,
     /** 购买/备注等操作的即时反馈。 */
     val actionMessage: String? = null,
@@ -77,6 +78,15 @@ class TicketViewModel(
     private val _ui = MutableStateFlow(TicketUiState())
     val ui: StateFlow<TicketUiState> = _ui.asStateFlow()
 
+    /**
+     * 开奖库的共享订阅：下面多条派生流共用一份——
+     * SQLDelight 的 asFlow 是冷流，每 combine 一次就多一次独立查询，
+     * 不共享的话每次库变更要跑 7 遍 selectAllDraws + 映射。
+     */
+    private val draws: SharedFlow<List<Draw>> = drawRepository.observeAll()
+        // replay=1：晚加入的派生流能立刻拿到最近一次库快照
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     val tickets: StateFlow<List<Ticket>> = ticketRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -88,7 +98,7 @@ class TicketViewModel(
      * 全库扫描是毫秒级，但仍扔到 Default 线程，别占主线程。
      */
     val backtest: StateFlow<DraftBacktest?> =
-        combine(_ui, drawRepository.observeAll()) { u, draws ->
+        combine(_ui, draws) { u, draws ->
             val window = u.backtestRange.draws?.let { n -> draws.take(n) } ?: draws
             if (u.draft.isValid) runBacktest(u.draft, window) else null
         }
@@ -102,7 +112,7 @@ class TicketViewModel(
      * 无购买记录：沿用旧口径（相对最新一期的假设核对），漂在"假如买了"的语义上。
      */
     val statuses: StateFlow<Map<Long, TicketStatus>> =
-        combine(tickets, purchases, drawRepository.observeAll()) { ts, ps, draws ->
+        combine(tickets, purchases, draws) { ts, ps, draws ->
             val asc = draws.asReversed()
             val newest = draws.firstOrNull()
             val byTicket = ps.groupBy { it.ticketId }
@@ -126,20 +136,20 @@ class TicketViewModel(
 
     /** 选号指纹：当前草稿在历史分布中的位置，随选号实时更新。 */
     val fingerprint: StateFlow<DraftFingerprint?> =
-        combine(_ui, drawRepository.observeAll()) { u, draws ->
+        combine(_ui, draws) { u, draws ->
             fingerprintOf(u.draft, draws)
         }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** 号码遗漏：选号格下的小字用。开奖库变化时重算，毫秒级。 */
-    val stats: StateFlow<NumberStats?> = drawRepository.observeAll()
+    val stats: StateFlow<NumberStats?> = draws
         .map(::computeStats)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** 每张存票的购买汇总（笔数/投入/奖金/最近一笔）。 */
     val purchaseSummaries: StateFlow<Map<Long, TicketPurchaseSummary>> =
-        combine(tickets, purchases, drawRepository.observeAll()) { ts, ps, draws ->
+        combine(tickets, purchases, draws) { ts, ps, draws ->
             val asc = draws.asReversed()
             val byTicket = ps.groupBy { it.ticketId }
             ts.associate { t -> t.id to summaryOf(t, byTicket[t.id].orEmpty(), asc) }
@@ -149,7 +159,7 @@ class TicketViewModel(
 
     /** 真实账本：全部购买的投入/奖金/累计净收益时间线。 */
     val ledger: StateFlow<PurchaseLedger> =
-        combine(purchases, tickets, drawRepository.observeAll()) { ps, ts, draws ->
+        combine(purchases, tickets, draws) { ps, ts, draws ->
             ledgerOf(ps, ts.associateBy { it.id }, draws.asReversed())
         }
             .flowOn(Dispatchers.Default)
@@ -157,7 +167,7 @@ class TicketViewModel(
 
     /** 每张存票的历史最佳：库或票变化时重算。 */
     val histories: StateFlow<Map<Long, HistoryRecord>> =
-        combine(tickets, drawRepository.observeAll()) { ts, draws ->
+        combine(tickets, draws) { ts, draws ->
             ts.associate { it.id to HistoryScanner.scan(it.draft, draws) }
         }
             .flowOn(Dispatchers.Default)
@@ -360,7 +370,4 @@ class TicketViewModel(
             }
         }
     }
-
-    /** 某张票的历史战绩。 */
-    suspend fun historyOf(draft: TicketDraft) = HistoryScanner.scan(draft, drawRepository.all())
 }

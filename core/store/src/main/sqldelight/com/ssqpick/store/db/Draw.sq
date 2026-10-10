@@ -21,20 +21,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 selectAllDraws:
 SELECT * FROM draw ORDER BY date DESC;
 
-selectDrawsAscending:
-SELECT * FROM draw ORDER BY date ASC;
-
-selectDrawByCode:
-SELECT * FROM draw WHERE code = ?;
-
 selectDrawCount:
 SELECT COUNT(*) FROM draw;
 
 selectNewestDraw:
 SELECT * FROM draw ORDER BY date DESC LIMIT 1;
-
-selectDrawsSince:
-SELECT * FROM draw WHERE date >= ? ORDER BY date DESC;
-
-deleteAllDraws:
-DELETE FROM draw;

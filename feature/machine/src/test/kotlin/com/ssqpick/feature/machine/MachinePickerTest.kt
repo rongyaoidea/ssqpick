@@ -52,7 +52,6 @@ class MachinePickerTest {
         }
         override suspend fun rename(id: Long, label: String?) {}
         override suspend fun delete(id: Long) {}
-        override suspend fun clear() {}
     }
 
     private class FakeDrawRepo : DrawRepository {
@@ -61,7 +60,6 @@ class MachinePickerTest {
         override suspend fun all(): List<Draw> = emptyList()
         override suspend fun count(): Long = 0L
         override suspend fun insertAll(draws: List<Draw>) {}
-        override suspend fun clear() {}
         override suspend fun syncFromOfficial(): SyncResult = SyncResult.AlreadyUpToDate
     }
 

@@ -3,6 +3,7 @@ package com.ssqpick.feature.ticket
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -105,6 +106,8 @@ fun TicketScreen(
     }
 
     var renameTarget by remember { mutableStateOf<Ticket?>(null) }
+    // 弹层打开时系统返回键先关弹层，而不是切导航/退出
+    BackHandler(enabled = renameTarget != null) { renameTarget = null }
 
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(

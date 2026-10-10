@@ -1,6 +1,5 @@
 package com.ssqpick.designsystem.sketch
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -54,35 +52,6 @@ object SketchPalette {
     val BlueInk = Color(0xFF3A6FD8)
     val RedBall = Color(0xFFE23A2E)
     val BlueBall = Color(0xFF2C6BD4)
-}
-
-/**
- * 纸面背景。
- *
- * 除了底色还撒了一小撮极淡的纤维斑点——纯色在手机上容易显得像塑料，
- * 有一点颗粒才像纸。斑点位置由 seed 决定、数量固定，不会闪。
- */
-@Composable
-fun PaperBackground(
-    modifier: Modifier = Modifier,
-    seed: Int = 20261010,
-    speckles: Int = 80,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(SketchPalette.Canvas)
-            .drawBehind {
-                val rnd = Random(seed)
-                repeat(speckles) {
-                    drawCircle(
-                        color = SketchPalette.InkFaint.copy(alpha = 0.10f),
-                        radius = 0.6f + rnd.nextFloat() * 1.4f,
-                        center = Offset(rnd.nextFloat() * size.width, rnd.nextFloat() * size.height),
-                    )
-                }
-            },
-    )
 }
 
 /**

@@ -54,7 +54,6 @@ class TicketViewModelTest {
         override suspend fun save(draft: TicketDraft, label: String?): Long = 1L
         override suspend fun rename(id: Long, label: String?) {}
         override suspend fun delete(id: Long) {}
-        override suspend fun clear() {}
     }
 
     private class FakeDrawRepo : DrawRepository {
@@ -63,7 +62,6 @@ class TicketViewModelTest {
         override suspend fun all(): List<Draw> = emptyList()
         override suspend fun count(): Long = 0L
         override suspend fun insertAll(draws: List<Draw>) {}
-        override suspend fun clear() {}
         override suspend fun syncFromOfficial(): SyncResult = SyncResult.AlreadyUpToDate
     }
 
@@ -73,7 +71,6 @@ class TicketViewModelTest {
         val rows: List<Purchase> get() = state.value
 
         override fun observeAll(): Flow<List<Purchase>> = state
-        override suspend fun all(): List<Purchase> = state.value
         override suspend fun unsettled(): List<Purchase> = state.value.filter { !it.settled }
         override suspend fun record(ticketId: Long, costYuan: Long) {
             state.value += Purchase(id = nextId++, ticketId = ticketId, purchasedAtEpochMs = 0L, costYuan = costYuan)

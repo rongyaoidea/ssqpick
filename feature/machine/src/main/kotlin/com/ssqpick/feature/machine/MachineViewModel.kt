@@ -10,11 +10,8 @@ import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** 摇号界面的 UI 状态。 */
@@ -47,11 +44,6 @@ class MachineViewModel(
 
     private val _ui = MutableStateFlow(DrawUiState())
     val ui: StateFlow<DrawUiState> = _ui.asStateFlow()
-
-    /** 历史开奖数据流，供界面显示最新期号与对奖入口。 */
-    val ticketCount: StateFlow<Int> = ticketRepository.observeAll()
-        .combine(_ui) { list, _ -> list.size }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     init {
         viewModelScope.launch {

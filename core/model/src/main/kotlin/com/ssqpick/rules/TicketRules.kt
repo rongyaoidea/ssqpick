@@ -268,13 +268,6 @@ object TicketRules {
         return total to breakdown
     }
 
-    /** 展开后的注逐一命中（供 UI 展示具体哪注中了什么）。 */
-    fun evaluateBets(draft: TicketDraft, draw: Draw, limit: Long = 200L): List<Pair<Bet, PrizeTier?>> = expand(draft).asSequence()
-        .take(limit.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
-        .map { bet -> bet to tierFor(countRedMatches(bet.red, draw.red), draw.blue in bet.blues) }
-        .filter { it.second != null }
-        .toList()
-
     // ---------------------------------------------------------------- 工具
 
     /** C(n,k)，越界返回 0。 */

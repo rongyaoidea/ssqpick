@@ -22,12 +22,6 @@ DELETE FROM ticket WHERE id = ?;
 selectAllTickets:
 SELECT * FROM ticket ORDER BY created_at DESC;
 
-selectTicketById:
-SELECT * FROM ticket WHERE id = ?;
-
-selectTicketCount:
-SELECT COUNT(*) FROM ticket;
-
 -- 取刚插入行的自增 id（SQLDelight 不会为此表自动生成该方法）
 selectLastInsertRowId:
 SELECT last_insert_rowid();
