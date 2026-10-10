@@ -181,6 +181,9 @@ class MachineController {
                     )
                     phaseTimer = 0f
                     emitCooldown = 0f
+                    // 计数器红蓝共用：不清零的话，蓝阶段 `emitIndex == 0` 守卫永远等不到，
+                    // 蓝球一次都不发射，状态机卡死在 BLUE_DRAWING。
+                    emitIndex = 0
                 }
             }
 

@@ -1,17 +1,22 @@
 package com.ssqpick.feature.machine
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -25,7 +30,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ssqpick.designsystem.component.BallRow
+import com.ssqpick.designsystem.component.NumberBall
 import com.ssqpick.designsystem.sketch.SketchButton
 import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchChip
@@ -124,27 +129,27 @@ fun MachineScreen(
 /** 结果条：6 红 + 1 蓝，一行呈现，全屏唯一需要读清号码的地方。 */
 @Composable
 private fun ResultStrip(m: MachineUiState) {
-    Row(
+    // 复式红 10 蓝 4 一行摆不下（单式 6+1 刚好）：用 FlowRow 自动换行，
+    // 否则蓝球会被顶到屏幕外面去。
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        BallRow(
+        BallSlots(
             numbers = m.redNumbers,
             isBlue = false,
-            ballSize = SsqDimens.ballSize,
             placeholderCount = m.mode.redCount,
         )
         Text(
             "+",
             style = MaterialTheme.typography.titleLarge,
             color = SketchPalette.Ink,
-            modifier = Modifier.padding(horizontal = 8.dp),
         )
-        BallRow(
+        BallSlots(
             numbers = m.blueNumbers,
             isBlue = true,
-            ballSize = SsqDimens.ballSize,
             placeholderCount = m.mode.blueCount,
         )
     }
@@ -156,6 +161,28 @@ private fun ResultStrip(m: MachineUiState) {
         modifier = Modifier.fillMaxWidth(),
         textAlign = TextAlign.Center,
     )
+}
+
+/** 一组球槽：已出画球、未出画空圈（沿用 BallRow 的"位置比隐藏清楚"）。 */
+@Composable
+private fun FlowRowScope.BallSlots(
+    numbers: List<Int>,
+    isBlue: Boolean,
+    placeholderCount: Int,
+) {
+    repeat(placeholderCount) { index ->
+        val n = numbers.getOrNull(index)
+        if (n == null) {
+            Box(
+                Modifier
+                    .size(SsqDimens.ballSize)
+                    .clip(CircleShape)
+                    .border(1.dp, SketchPalette.InkFaint, CircleShape),
+            )
+        } else {
+            NumberBall(number = n, isBlue = isBlue, size = SsqDimens.ballSize)
+        }
+    }
 }
 
 /** 主操作区。按钮文案随状态变化，而不是一个按钮配三种不可见的禁用理由。 */

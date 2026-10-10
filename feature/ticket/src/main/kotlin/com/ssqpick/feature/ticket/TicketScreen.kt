@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -633,16 +634,21 @@ private fun TicketRow(
     onDelete: () -> Unit,
 ) {
     SketchCard(seed = "ticket-${ticket.id}", tilt = if (ticket.id % 2L == 0L) 0.25f else -0.25f) {
-        Row(
+        // 存票可能是 20 红大复式：一行摆不下会顶出屏幕，换行显示
+        FlowRow(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             ticket.draft.redPool.sorted().forEach {
                 NumberBall(it, isBlue = false, size = SsqDimens.ballSizeSmall)
             }
         }
         Spacer(Modifier.height(2.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             ticket.draft.bluePool.sorted().forEach {
                 NumberBall(it, isBlue = true, size = SsqDimens.ballSizeSmall)
             }
