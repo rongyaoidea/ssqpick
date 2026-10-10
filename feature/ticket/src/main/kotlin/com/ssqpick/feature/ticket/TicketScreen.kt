@@ -1,6 +1,9 @@
 package com.ssqpick.feature.ticket
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -31,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,16 +67,19 @@ import com.ssqpick.designsystem.sketch.sketchBox
 import com.ssqpick.designsystem.theme.SsqDimens
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.Ticket
+import com.ssqpick.model.TicketKind
 import com.ssqpick.rules.DraftBacktest
 import com.ssqpick.rules.DraftFingerprint
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.PurchaseLedger
+import com.ssqpick.rules.SmsCommand
 import com.ssqpick.rules.TicketPurchaseSummary
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
 import com.ssqpick.rules.theoreticalBlueHitRate
 import com.ssqpick.rules.theoreticalRedDistribution
+import kotlinx.coroutines.delay
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
@@ -132,6 +142,48 @@ fun TicketScreen(
             TicketFilter.WON -> statuses[t.id] is TicketStatus.Won
             TicketFilter.BOUGHT -> (summaries[t.id]?.count ?: 0) > 0
         }
+    }
+
+    // —— 短信投注指令（00CP 体系）——
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    var smsFeedback by remember { mutableStateOf<SmsCopyFeedback?>(null) }
+    var smsSettingsTarget by remember { mutableStateOf<SmsCopyTarget?>(null) }
+    val selectedTickets = tickets.filter { it.id in ui.selectedCopyIds }
+
+    // 纸条几秒后自动收起，不挡住列表
+    LaunchedEffect(smsFeedback) {
+        if (smsFeedback != null) {
+            delay(6_000)
+            smsFeedback = null
+        }
+    }
+
+    fun copyToClipboard(command: String, target: SmsCopyTarget, recordTicketId: Long?) {
+        clipboard.setPrimaryClip(ClipData.newPlainText("ssq-sms", command))
+        smsFeedback = SmsCopyFeedback(
+            title = "已复制 · 粘贴到短信发送",
+            body = command,
+            target = target,
+            recordTicketId = recordTicketId,
+        )
+    }
+
+    fun copySingle(ticket: Ticket) {
+        if (ticket.draft.blueBold.isNotEmpty()) {
+            smsFeedback = SmsCopyFeedback(
+                title = "暂不支持",
+                body = "双色球没有蓝胆拖玩法，这类票无法生成短信指令。",
+            )
+            return
+        }
+        val command = SmsCommand.of(ticket.draft) ?: return
+        val noPurchase = (summaries[ticket.id]?.count ?: 0) == 0
+        copyToClipboard(command, SmsCopyTarget.Single(ticket.id), if (noPurchase) ticket.id else null)
+    }
+
+    fun copyMulti() {
+        val command = SmsCommand.multi(selectedTickets.map { it.draft }) ?: return
+        copyToClipboard(command, SmsCopyTarget.Multi, recordTicketId = null)
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -245,6 +297,10 @@ fun TicketScreen(
                             history = histories[ticket.id],
                             status = statuses[ticket.id],
                             summary = summaries[ticket.id],
+                            selectable = ticket.draft.kind == TicketKind.SIMPLE,
+                            selected = ticket.id in ui.selectedCopyIds,
+                            onToggleSelect = { viewModel.toggleCopySelection(ticket) },
+                            onCopy = { copySingle(ticket) },
                             onRecord = {
                                 viewModel.recordPurchase(ticket)
                                 requestNotifyPermission()
@@ -269,6 +325,63 @@ fun TicketScreen(
                         Spacer(Modifier.height(14.dp))
                     }
                 }
+            }
+        }
+
+        // 底部浮层：复制反馈纸条 + 多注勾选栏
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+        ) {
+            smsFeedback?.let { fb ->
+                SmsCopyStrip(
+                    feedback = fb,
+                    onAdjust = fb.target?.let { t -> { smsSettingsTarget = t } },
+                    onRecord = fb.recordTicketId?.let { id ->
+                        {
+                            tickets.firstOrNull { it.id == id }?.let {
+                                viewModel.recordPurchase(it)
+                                requestNotifyPermission()
+                            }
+                            smsFeedback = null
+                        }
+                    },
+                )
+            }
+            if (selectedTickets.isNotEmpty()) {
+                MultiCopyBar(
+                    count = selectedTickets.size,
+                    onCopy = { copyMulti() },
+                    onClear = viewModel::clearCopySelection,
+                )
+            }
+        }
+
+        smsSettingsTarget?.let { target ->
+            val drafts = when (target) {
+                is SmsCopyTarget.Single ->
+                    tickets.firstOrNull { it.id == target.ticketId }?.let { listOf(it.draft) }.orEmpty()
+
+                SmsCopyTarget.Multi -> selectedTickets.map { it.draft }
+            }
+            if (drafts.isNotEmpty()) {
+                SmsSettingsDialog(
+                    drafts = drafts,
+                    multi = target == SmsCopyTarget.Multi,
+                    onDismiss = { smsSettingsTarget = null },
+                    onCopy = { command ->
+                        val recordId = if (target is SmsCopyTarget.Single &&
+                            (summaries[target.ticketId]?.count ?: 0) == 0
+                        ) {
+                            target.ticketId
+                        } else {
+                            null
+                        }
+                        copyToClipboard(command, target, recordId)
+                        smsSettingsTarget = null
+                    },
+                )
             }
         }
 
@@ -791,6 +904,11 @@ private fun TicketRow(
     history: HistoryRecord?,
     status: TicketStatus?,
     summary: TicketPurchaseSummary?,
+    /** 单式票才可勾选（单式多注复制）。 */
+    selectable: Boolean,
+    selected: Boolean,
+    onToggleSelect: () -> Unit,
+    onCopy: () -> Unit,
     onRecord: () -> Unit,
     onRename: () -> Unit,
     onUndo: () -> Unit,
@@ -802,12 +920,41 @@ private fun TicketRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                ticket.label ?: "号码 #${ticket.id}",
-                style = MaterialTheme.typography.titleMedium,
-                color = SketchPalette.Ink,
-                modifier = Modifier.weight(1f, fill = false),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selectable) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clickable(role = Role.Checkbox, onClick = onToggleSelect)
+                            .semantics(mergeDescendants = true) {
+                                stateDescription = if (selected) "已勾选" else "未勾选"
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(22.dp)
+                                .sketchBox(seed = "sel-${ticket.id}", filled = selected, corner = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (selected) {
+                                Text(
+                                    "✓",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = SketchPalette.Paper,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    ticket.label ?: "号码 #${ticket.id}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = SketchPalette.Ink,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
             Spacer(Modifier.width(8.dp))
             StatusChip(status)
         }
@@ -868,6 +1015,11 @@ private fun TicketRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            SketchMiniButton(
+                label = "复制指令",
+                seed = "ticket-copy-${ticket.id}",
+                onClick = onCopy,
+            )
             SketchMiniButton(
                 label = "记录购买",
                 seed = "ticket-buy-${ticket.id}",

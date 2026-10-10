@@ -221,6 +221,27 @@ class TicketViewModelTest {
     }
 
     @Test
+    fun `多注勾选上限5_第6注被拒并提示`() {
+        val vm = vm()
+        val tickets = (1L..6L).map {
+            Ticket(
+                id = it,
+                createdAtEpochMs = 0L,
+                draft = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(1)),
+            )
+        }
+        tickets.forEach { vm.toggleCopySelection(it) }
+        assertEquals(5, vm.ui.value.selectedCopyIds.size)
+        assertTrue(vm.ui.value.actionMessage?.contains("5") == true)
+
+        // 再点已勾选的票 → 取消
+        vm.toggleCopySelection(tickets.first())
+        assertEquals(4, vm.ui.value.selectedCopyIds.size)
+        vm.clearCopySelection()
+        assertTrue(vm.ui.value.selectedCopyIds.isEmpty())
+    }
+
+    @Test
     fun `记录购买两笔后撤销最近一笔`() = runTest {
         val purchases = FakePurchaseRepo()
         val vm = vm(purchaseRepo = purchases)

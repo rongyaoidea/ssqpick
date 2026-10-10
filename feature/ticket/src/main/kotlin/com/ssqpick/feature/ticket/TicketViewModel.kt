@@ -13,6 +13,7 @@ import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.NumberGenerator
 import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.PurchaseLedger
+import com.ssqpick.rules.SmsCommand
 import com.ssqpick.rules.TicketPurchaseSummary
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
@@ -60,6 +61,8 @@ data class TicketUiState(
     /** 机选填的号码：再点机选整体替换，手选的不动。 */
     val autoReds: Set<Int> = emptySet(),
     val autoBlues: Set<Int> = emptySet(),
+    /** 单式多注复制的勾选（最多 [SmsCommand.MAX_MULTI_BETS] 注）。 */
+    val selectedCopyIds: Set<Long> = emptySet(),
     val syncMessage: String? = null,
     /** 购买/备注等操作的即时反馈。 */
     val actionMessage: String? = null,
@@ -336,8 +339,32 @@ class TicketViewModel(
     fun delete(ticket: Ticket) {
         viewModelScope.launch {
             ticketRepository.delete(ticket.id)
-            _ui.value = _ui.value.copy(actionMessage = "已删除号码 #${ticket.id}")
+            _ui.value = _ui.value.copy(
+                actionMessage = "已删除号码 #${ticket.id}",
+                selectedCopyIds = _ui.value.selectedCopyIds - ticket.id,
+            )
         }
+    }
+
+    /**
+     * 单式多注复制：勾选/取消一张单式票。
+     * 上限 [SmsCommand.MAX_MULTI_BETS] 注（单票最多 5 注），超了给明确提示而不是静默。
+     */
+    fun toggleCopySelection(ticket: Ticket) {
+        val cur = _ui.value.selectedCopyIds
+        _ui.value = when {
+            ticket.id in cur -> _ui.value.copy(selectedCopyIds = cur - ticket.id)
+
+            cur.size >= SmsCommand.MAX_MULTI_BETS -> _ui.value.copy(
+                actionMessage = "单票最多勾选 ${SmsCommand.MAX_MULTI_BETS} 注（单式多注上限）",
+            )
+
+            else -> _ui.value.copy(selectedCopyIds = cur + ticket.id)
+        }
+    }
+
+    fun clearCopySelection() {
+        _ui.value = _ui.value.copy(selectedCopyIds = emptySet())
     }
 
     fun rename(ticket: Ticket, label: String?) {
