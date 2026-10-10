@@ -16,6 +16,31 @@ android {
         versionName = libs.versions.appVersion.get()
     }
 
+    signingConfigs {
+        // 共享的 debug 密钥已入库：任何机器/CI 的 debug 包都能互相覆盖安装。
+        // debug 密钥不是机密（Android 公知的默认凭证），放在仓库里是常规做法。
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            storeType = "PKCS12"
+        }
+
+        // release 密钥只存在于 GitHub Secrets，由 CI 注入环境变量。
+        // 变量缺失时（例如外部贡献者跑 PR）不配置 release 签名，构建照常进行，
+        // 只是产出未签名 APK，而不是让整个构建失败。
+        val keystorePath = System.getenv("KEYSTORE_FILE")
+        if (keystorePath != null && file(keystorePath).exists()) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -27,8 +52,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // 发布签名由 CI 通过 keystore 环境变量注入，本地 debug 用标准 debug key
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (signingConfigs.findByName("release") != null) {
+                signingConfigs.findByName("release")
+            } else {
+                null
+            }
         }
     }
 

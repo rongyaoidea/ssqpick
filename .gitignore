@@ -13,3 +13,9 @@ local.properties
 
 # 系统杂项
 .DS_Store
+
+# release 私钥绝不入库：只存在于 GitHub Secrets，由 CI 注入
+*.jks
+*.p12
+*.keystore
+!app/debug.keystore

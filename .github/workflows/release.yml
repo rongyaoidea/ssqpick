@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（例如 v1.0.0）"
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 构建并发布签名 Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 创建 Release 与上传附件必需
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 从 Secrets 还原 release 密钥库
+        run: |
+          mkdir -p "$RUNNER_TEMP/keystore"
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/keystore/ssqpick-release.jks"
+          # 校验还原出来的密钥库确实可用，避免带着坏密钥跑完整个构建才失败
+          keytool -list -alias "${{ secrets.KEY_ALIAS }}" \
+            -keystore "$RUNNER_TEMP/keystore/ssqpick-release.jks" \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" >/dev/null
+          echo "密钥库校验通过"
+
+      - name: 记录签名证书指纹
+        id: cert
+        run: |
+          FP=$(keytool -list -v -alias "${{ secrets.KEY_ALIAS }}" \
+            -keystore "$RUNNER_TEMP/keystore/ssqpick-release.jks" \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" | grep -m1 'SHA256:' | awk '{print $2}')
+          echo "signature=$FP" >> "$GITHUB_OUTPUT"
+          echo "证书 SHA-256: $FP"
+          # 与仓库记录的上一次发布指纹比对，不一致就中止：
+          # 上传覆盖签名的包会让老用户无法覆盖升级
+          PREV=$(grep -oE 'SHA-256: [0-9A-F:]+' docs/SIGNING.md 2>/dev/null | head -1 | awk '{print $2}')
+          if [ -n "$PREV" ] && [ "$PREV" != "$FP" ]; then
+            echo "::error::签名指纹与上次发布不一致（$PREV -> $FP），已中止。"
+            echo "::error::换了签名密钥会导致已安装用户无法覆盖升级，必须确认这是有意的。"
+            exit 1
+          fi
+          echo "指纹与历史发布一致"
+
+      - name: 构建签名 Release APK 与 AAB
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/keystore/ssqpick-release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease bundleRelease --stacktrace --console=plain
+
+      - name: 校验产物确实已用 release 证书签名
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          # keytool -printcert 直接读 APK 的签名块，比拼 apksigner 路径可靠
+          CERT=$(keytool -printcert -jarfile "$APK" | grep -m1 'SHA256:' | awk '{print $2}')
+          echo "APK 证书: $CERT"
+          if [ "$CERT" != "${{ steps.cert.outputs.signature }}" ]; then
+            echo "::error::APK 签名证书与密钥库不匹配（$CERT != ${{ steps.cert.outputs.signature }}）"
+            exit 1
+          fi
+          echo "签名校验通过：产物确由预期 release 证书签发"
+
+      - name: 上传 Release 附件
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
