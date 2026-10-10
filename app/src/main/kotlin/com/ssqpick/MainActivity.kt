@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
@@ -131,9 +133,18 @@ private fun AppScaffold() {
 @Composable
 private fun AppHeader(active: TopTab) {
     Surface(color = MaterialTheme.colorScheme.background) {
+        // 这里有两个必须同时满足的约束，缺一不可：
+        //
+        // 1. **不能用 fillMaxSize**。Material3 的 Scaffold 用
+        //    `Constraints.fixed(width, layoutHeight)` 测量 topBar —— 高度是**整个
+        //    页面高度**。顶部再填满，NavHost 就被挤成 0 高度，整屏内容消失，
+        //    只剩 Scaffold 自己的头部和底栏可见。
+        // 2. **加 heightIn(max = ...)** 作为硬保险。即使以后有人再写成 fillMaxSize，
+        //    头部也最多占这么高，不可能把 body 吃干净。
         Column(
             Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .heightIn(max = 120.dp)
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {

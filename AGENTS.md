@@ -41,22 +41,23 @@ Java 相关进程若报 `Failed to mark memory page as executable`，需要
 改 `TicketRules` 的任何逻辑，必须先跑 `组合计数与暴力枚举一致`——
 它把解析式和朴素展开实现逐项比对，是这套对奖逻辑唯一的安全网。
 
-## 摇号机：必须是 2D，不要改回 OpenGL
+## 界面崩溃三连（都实测踩过）
 
-`DrumStage` 用 Compose `Canvas` 画，**不要**换回 `GLSurfaceView`。3D 方案在真机上
-完全空白，原因有三层（都是实测踩过的）：
+**1. Scaffold 的 topBar 里绝不能用 `fillMaxSize()`。**
+Material3 用 `Constraints.fixed(width, layoutHeight)` 测量 topBar —— 高度是**整个页面高度**。
+顶部一填满，NavHost 就被挤成 0 高度，整屏内容消失，只剩 Scaffold 自己的头部和底栏可见。
+`AppHeader` 同时加了 `heightIn(max = 120.dp)` 作硬保险。这个 bug 在真机上表现是
+"除了标题栏和底部导航，什么都没有"，很容易被误判成渲染层问题。
 
-1. `SurfaceView` 的 surface 由系统单独合成，**不跟随父视图滚动**，
-   放进 `verticalScroll` / `LazyColumn` 会渲染错位甚至全黑；
-2. `onResume()` 只在生命周期**状态切换**时回调，Compose 合成时宿主已 RESUMED，
-   监听器不会重放事件，渲染线程因此从未启动；
-3. 还额外依赖设备 GLES 3.0、EGL 配置与着色器编译，任一失败都是静默黑屏。
+**2. 不要用 `GLSurfaceView`。** `DrumStage` 用 Compose `Canvas` 画，**不要**换回去。
+`SurfaceView` 的 surface 由系统单独合成，不跟随父视图滚动；且 `onResume()` 只在
+生命周期**状态切换**时回调，合成时宿主已 RESUMED，渲染线程因此从未启动；
+还额外依赖设备 GLES 3.0、EGL 配置与着色器编译，任一失败都是静默黑屏。
 
-`Canvas` 没有这些失败面：无独立 surface、无 EGL、无着色器，
-Compose 能画出界面它就能画出机器，整屏可滚动也安全。
+**3. 物理层 `DrumWorld` 与渲染方式无关**（纯 Kotlin，无 Android 依赖，有独立单测），
+改渲染不影响它，可放心复用。
 
-物理层 `DrumWorld` 与渲染方式无关（纯 Kotlin，无 Android 依赖，有独立单测），
-可以放心复用。
+排查界面"整块空白"时，先怀疑布局把 body 挤成 0 高度，而不是渲染层。
 
 ## 设计纪律
 
