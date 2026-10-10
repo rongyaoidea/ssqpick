@@ -83,9 +83,16 @@ jobs:
       - name: 校验产物确实已用 release 证书签名
         run: |
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
-          # keytool -printcert 直接读 APK 的签名块，比拼 apksigner 路径可靠
-          CERT=$(keytool -printcert -jarfile "$APK" | grep -m1 'SHA256:' | awk '{print $2}')
+          echo "待校验 APK: $APK"
+
+          # keytool -printcert -jarfile 只认 JAR v1 签名块，对只用 v2/v3 的 APK
+          # 会报 "Not a signed jar file" 或直接输出空。APK 签名只能用 apksigner 读。
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          echo "使用 $APKSIGNER"
+          CERT=$("$APKSIGNER" verify --print-certs "$APK" \
+            | grep -m1 'SHA-256 digest' | awk '{print $NF}')
           echo "APK 证书: $CERT"
+
           if [ "$CERT" != "${{ steps.cert.outputs.signature }}" ]; then
             echo "::error::APK 签名证书与密钥库不匹配（$CERT != ${{ steps.cert.outputs.signature }}）"
             exit 1
