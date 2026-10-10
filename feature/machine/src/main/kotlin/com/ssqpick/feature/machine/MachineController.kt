@@ -103,8 +103,9 @@ class MachineController {
 
     fun start(mode: DrawMode) {
         if (_state.value.isRunning) return
-        pendingRed = NumberGenerator.sample(33, mode.redCount).sorted()
-        pendingBlue = NumberGenerator.sample(16, mode.blueCount).sorted()
+        // 出号顺序用随机序（逐颗摇出），结果行展示时再排序
+        pendingRed = NumberGenerator.sampleOrdered(33, mode.redCount)
+        pendingBlue = NumberGenerator.sampleOrdered(16, mode.blueCount)
         emitIndex = 0
         emitCooldown = 0f
         phaseTimer = 0f
@@ -176,7 +177,8 @@ class MachineController {
                 if (emitIndex >= pendingRed.size) {
                     _state.value = _state.value.copy(
                         phase = MachineUiState.Phase.BLUE_MIXING,
-                        redNumbers = pendingRed,
+                        // 展示用结果排序（出号顺序是随机的，见 pendingRed）
+                        redNumbers = pendingRed.sorted(),
                         redEmitted = pendingRed.size,
                     )
                     phaseTimer = 0f
@@ -210,7 +212,7 @@ class MachineController {
                 ) {
                     _state.value = _state.value.copy(
                         phase = MachineUiState.Phase.COMPLETE,
-                        blueNumbers = pendingBlue,
+                        blueNumbers = pendingBlue.sorted(),
                         blueEmitted = pendingBlue.size,
                     )
                 }

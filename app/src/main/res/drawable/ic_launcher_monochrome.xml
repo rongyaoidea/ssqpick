@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 单色版（Android 13+ 主题图标）：实心红球 + 空心蓝球 + 划线。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#000000"
+        android:pathData="M58.92,41.67 Q61.15,47.00 59.01,52.40 Q56.87,57.80 51.98,61.17 Q47.09,64.53 41.38,62.97 Q35.68,61.41 31.58,57.21 Q27.49,53.01 27.65,47.06 Q27.81,41.11 31.75,36.86 Q35.69,32.61 41.37,31.18 Q47.04,29.75 51.87,33.05 Q56.70,36.35 58.92,41.67 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M78.29,56.10 Q79.91,61.00 78.24,65.86 Q76.57,70.71 72.16,73.62 Q67.74,76.52 62.63,75.23 Q57.53,73.94 54.21,70.04 Q50.89,66.14 50.82,60.98 Q50.76,55.82 54.27,52.16 Q57.78,48.50 62.70,47.35 Q67.61,46.21 72.14,48.71 Q76.67,51.21 78.29,56.10 Z"
+        android:strokeColor="#000000"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M36.0,78.0 L45.5,77.3 L54.5,78.3 L63.5,77.5 L72.0,78.0"
+        android:strokeColor="#000000"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

@@ -34,6 +34,25 @@ object NumberGenerator {
     }
 
     /**
+     * 从 1..total 中无放回均匀抽取 [count] 个，返回**抽取顺序**（不排序）。
+     *
+     * 摇号机逐颗出号用：出号顺序必须是随机序，最后展示时再排序——
+     * 如果按升序出号，"摇"的过程就露馅了（01、02、03…依次滚出来）。
+     */
+    fun sampleOrdered(total: Int, count: Int): List<Int> {
+        require(count in 0..total) { "count=$count 超出 1..$total" }
+        val pool = IntArray(total) { it + 1 }
+        for (i in 0 until count) {
+            val j = i + random.nextInt(total - i)
+            val tmp = pool[i]
+            pool[i] = pool[j]
+            pool[j] = tmp
+        }
+        // 前 count 个位置本身就是洗牌结果，直接取，不排序
+        return pool.take(count)
+    }
+
+    /**
      * 从给定候选池中无放回均匀抽取 [count] 个。
      *
      * 机选补缺用：候选池是"手选剩下的空位"，要多少补多少。

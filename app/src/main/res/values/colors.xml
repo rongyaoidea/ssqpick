@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ink">#0E1116</color>
-    <color name="launcher_background">#0E1116</color>
+    <!-- 纸面：与 SketchPalette.Paper 一致；启动窗口与系统栏都用它，
+         避免冷启动时闪一下深色底（旧模板遗留的深色主题已不用）。 -->
+    <color name="paper">#FBF8F2</color>
 </resources>

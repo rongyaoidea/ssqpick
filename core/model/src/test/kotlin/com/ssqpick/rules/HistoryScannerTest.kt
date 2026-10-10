@@ -137,6 +137,20 @@ class NumberGeneratorTest {
     }
 
     @Test
+    fun `sampleOrdered 是随机序不是恒升序`() {
+        var sawNonSorted = false
+        repeat(30) {
+            val s = NumberGenerator.sampleOrdered(33, 6)
+            assertEquals(6, s.size)
+            assertEquals(6, s.toSet().size)
+            assertTrue(s.all { it in 1..33 })
+            if (s != s.sorted()) sawNonSorted = true
+        }
+        // 6 个号恰好升序的概率是 1/720，30 次全升序的概率可忽略
+        assertTrue("30 次抽取中至少一次不是升序", sawNonSorted)
+    }
+
+    @Test
     fun `sampleFrom池不够截断为空`() {
         assertTrue(NumberGenerator.sampleFrom(emptyList(), 3).isEmpty())
         assertEquals(2, NumberGenerator.sampleFrom(listOf(7, 8), 5).size)

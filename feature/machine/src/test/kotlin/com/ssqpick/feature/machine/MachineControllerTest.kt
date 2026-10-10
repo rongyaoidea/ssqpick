@@ -32,6 +32,37 @@ class MachineControllerTest {
     }
 
     @Test
+    fun `出号顺序是随机序_结果行才是升序`() {
+        var sawNonAscendingEmission = false
+        repeat(5) { run ->
+            val c = MachineController()
+            c.start(DrawMode.SIMPLE)
+
+            val emission = mutableListOf<Int>()
+            var frames = 0
+            while (c.state.value.phase != MachineUiState.Phase.COMPLETE && frames < 14_400) {
+                val before = c.state.value.redEmitted
+                c.advance(1 / 60f)
+                frames++
+                if (c.state.value.redEmitted > before) {
+                    // 刚发射的球：在鼓里找 escaping 且还没记录过的那个
+                    val ball = c.redWorld.balls.firstOrNull { it.escaping && it.number !in emission }
+                    if (ball != null) emission += ball.number
+                }
+            }
+
+            assertEquals("第 $run 次应出满 6 颗", 6, emission.size)
+            // 结果行（展示）必须升序
+            assertEquals(emission.sorted(), c.state.value.redNumbers)
+            if (emission != emission.sorted()) sawNonAscendingEmission = true
+        }
+        org.junit.Assert.assertTrue(
+            "5 次摇号中至少一次出号顺序不是升序——否则说明又按排序发射了",
+            sawNonAscendingEmission,
+        )
+    }
+
+    @Test
     fun `复式蓝球逐颗出完才完成_红7蓝2`() {
         val c = MachineController()
         c.start(DrawMode.COMPOUND_SMALL)
