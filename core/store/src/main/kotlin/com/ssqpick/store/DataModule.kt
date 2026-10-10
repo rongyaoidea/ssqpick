@@ -11,6 +11,8 @@ val dataModule = module {
 
     single { DatabaseFactory(context = get(), api = get()) }
 
+    single { SettingsStore(context = get()) }
+
     single<DrawRepository> { get<DatabaseFactory>().draws }
     single<TicketRepository> { get<DatabaseFactory>().tickets }
     single<PurchaseRepository> { get<DatabaseFactory>().purchases }

@@ -10,6 +10,7 @@ import com.ssqpick.rules.computeShape
 import com.ssqpick.rules.computeStats
 import com.ssqpick.rules.simulateMonteCarlo
 import com.ssqpick.store.DrawRepository
+import com.ssqpick.store.SettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -39,9 +40,10 @@ fun trendOf(draws: List<Draw>, window: Int): TrendData? {
     return TrendData(sums = sums, mean = sums.average().toFloat())
 }
 
-/** 数据页：开奖日程、冷热、形态、和值走势、模拟实验室。 */
+/** 数据页：开奖日程、冷热、形态、和值走势、模拟实验室、往期开奖。 */
 class DataViewModel(
     private val drawRepository: DrawRepository,
+    private val settingsStore: SettingsStore,
 ) : ViewModel() {
 
     /**
@@ -54,6 +56,20 @@ class DataViewModel(
 
     val newest: StateFlow<Draw?> = drawRepository.observeNewest()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 往期开奖全量列表（时间倒序），数据页末尾的列表用。 */
+    val drawList: StateFlow<List<Draw>> = draws
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _notifyOn = MutableStateFlow(settingsStore.drawResultNotify)
+    val notifyOn: StateFlow<Boolean> = _notifyOn.asStateFlow()
+
+    /** 切换"开奖结果通知"订阅（默认关）。 */
+    fun toggleDrawNotify() {
+        val next = !_notifyOn.value
+        settingsStore.drawResultNotify = next
+        _notifyOn.value = next
+    }
 
     val stats: StateFlow<NumberStats?> = draws
         .map(::computeStats)

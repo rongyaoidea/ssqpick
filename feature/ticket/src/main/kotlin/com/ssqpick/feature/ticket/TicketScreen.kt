@@ -21,17 +21,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +70,14 @@ import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
 import com.ssqpick.rules.theoreticalBlueHitRate
 import com.ssqpick.rules.theoreticalRedDistribution
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.isoDayNumber
+import kotlinx.datetime.minus
+import kotlinx.datetime.plus
+import kotlinx.datetime.toLocalDateTime
 
 /**
  * 手选号码：点格选号，支持单式与复式，保存后可查看历史战绩。
@@ -89,6 +101,7 @@ fun TicketScreen(
     val ledger by viewModel.ledger.collectAsStateWithLifecycle()
     val fingerprint by viewModel.fingerprint.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val calendarMarks by viewModel.calendarMarks.collectAsStateWithLifecycle()
 
     // 第一次记录购买时顺手申请通知权限：后台自动对奖的中奖通知靠它
     val context = LocalContext.current
@@ -108,6 +121,18 @@ fun TicketScreen(
     var renameTarget by remember { mutableStateOf<Ticket?>(null) }
     // 弹层打开时系统返回键先关弹层，而不是切导航/退出
     BackHandler(enabled = renameTarget != null) { renameTarget = null }
+
+    // 存票筛选
+    var filterIdx by rememberSaveable { mutableIntStateOf(0) }
+    val filter = TicketFilter.entries[filterIdx]
+    val visibleTickets = tickets.filter { t ->
+        when (filter) {
+            TicketFilter.ALL -> true
+            TicketFilter.PENDING -> statuses[t.id] == TicketStatus.NotDrawn
+            TicketFilter.WON -> statuses[t.id] is TicketStatus.Won
+            TicketFilter.BOUGHT -> (summaries[t.id]?.count ?: 0) > 0
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
@@ -154,6 +179,8 @@ fun TicketScreen(
                     Spacer(Modifier.height(14.dp))
                     PnlCard(ledger)
                     Spacer(Modifier.height(14.dp))
+                    CalendarCard(marks = calendarMarks)
+                    Spacer(Modifier.height(14.dp))
                 }
             }
 
@@ -166,7 +193,29 @@ fun TicketScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             SketchSectionTitle("已保存的号码")
-                            SketchChip(label = "${tickets.size} 张", seed = "ticket-count")
+                            SketchChip(
+                                label = if (visibleTickets.size == tickets.size) {
+                                    "${tickets.size} 张"
+                                } else {
+                                    "${visibleTickets.size} / ${tickets.size} 张"
+                                },
+                                seed = "ticket-count",
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TicketFilter.entries.forEach { f ->
+                                SketchMiniButton(
+                                    label = f.label,
+                                    seed = "ticket-filter-${f.name}",
+                                    onClick = { filterIdx = f.ordinal },
+                                    filled = f == filter,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                         ui.actionMessage?.let {
                             Spacer(Modifier.height(4.dp))
@@ -175,7 +224,21 @@ fun TicketScreen(
                         Spacer(Modifier.height(10.dp))
                     }
                 }
-                items(tickets, key = { it.id }) { ticket ->
+                if (visibleTickets.isEmpty()) {
+                    item {
+                        Column(Modifier.padding(horizontal = 14.dp)) {
+                            SketchCard(seed = "ticket-filter-empty", tilt = 0.2f) {
+                                Text(
+                                    "没有符合“${filter.label}”的号码。",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = SketchPalette.InkSoft,
+                                )
+                            }
+                            Spacer(Modifier.height(14.dp))
+                        }
+                    }
+                }
+                items(visibleTickets, key = { it.id }) { ticket ->
                     Column(Modifier.padding(horizontal = 14.dp)) {
                         TicketRow(
                             ticket = ticket,
@@ -951,5 +1014,119 @@ private fun SketchInputDialog(
                 }
             }
         }
+    }
+}
+
+/** 存票列表筛选。 */
+private enum class TicketFilter(val label: String) {
+    ALL("全部"),
+    PENDING("未开奖"),
+    WON("中奖"),
+    BOUGHT("已购"),
+}
+
+/**
+ * 购票日历：每天一个格子，标出当天记录的购买结果。
+ * 金底 = 中奖 · 红点 = 未中 · 灰点 = 待开奖。只统计"记录过购买"的日期。
+ */
+@Composable
+private fun CalendarCard(marks: Map<LocalDate, DayMark>) {
+    var monthOffset by rememberSaveable { mutableIntStateOf(0) }
+    val zone = TimeZone.currentSystemDefault()
+    val today = Instant.fromEpochMilliseconds(System.currentTimeMillis()).toLocalDateTime(zone).date
+    val base = today.year * 12 + (today.monthNumber - 1) + monthOffset
+    val year = base / 12
+    val month = base % 12 + 1
+    val first = LocalDate(year, month, 1)
+    val daysInMonth = first.plus(1, DateTimeUnit.MONTH).minus(1, DateTimeUnit.DAY).dayOfMonth
+    val leading = first.dayOfWeek.isoDayNumber - 1 // 周一为一周之始
+    val cellCount = leading + daysInMonth
+    val rowCount = (cellCount + 6) / 7
+
+    SketchCard(seed = "ticket-calendar", tilt = -0.2f) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SketchSectionTitle("购票日历")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SketchMiniButton(label = "‹", seed = "cal-prev", onClick = { monthOffset-- })
+                SketchMiniButton(label = "›", seed = "cal-next", onClick = { monthOffset++ })
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "%d 年 %d 月".format(year, month),
+            style = MaterialTheme.typography.bodyMedium,
+            color = SketchPalette.Ink,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth()) {
+            listOf("一", "二", "三", "四", "五", "六", "日").forEach { w ->
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text(w, style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkFaint)
+                }
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            repeat(rowCount) { r ->
+                Row(Modifier.fillMaxWidth()) {
+                    repeat(7) { c ->
+                        val day = r * 7 + c - leading + 1
+                        if (day in 1..daysInMonth) {
+                            DayCell(
+                                day = day,
+                                mark = marks[LocalDate(year, month, day)] ?: DayMark.NONE,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Box(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "金底 = 中奖 · 红点 = 未中 · 灰点 = 待开奖（按记录购买的日期）",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkFaint,
+        )
+    }
+}
+
+@Composable
+private fun DayCell(day: Int, mark: DayMark, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(vertical = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(if (mark == DayMark.WIN) SketchPalette.Highlighter else Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$day", style = MaterialTheme.typography.labelSmall, color = SketchPalette.Ink)
+        }
+        val dot = when (mark) {
+            DayMark.WIN -> Color.Transparent
+
+            // 金底已表达
+            DayMark.MISS -> SketchPalette.RedInk
+
+            DayMark.PENDING -> SketchPalette.InkFaint
+
+            DayMark.NONE -> Color.Transparent
+        }
+        Box(
+            Modifier
+                .size(4.dp)
+                .clip(CircleShape)
+                .background(dot),
+        )
     }
 }

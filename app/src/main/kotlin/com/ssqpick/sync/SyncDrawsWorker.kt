@@ -14,8 +14,10 @@ import androidx.work.WorkerParameters
 import com.ssqpick.rules.outcomeOf
 import com.ssqpick.store.DrawRepository
 import com.ssqpick.store.PurchaseRepository
+import com.ssqpick.store.SettingsStore
 import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
+import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
 /**
@@ -34,11 +36,13 @@ class SyncDrawsWorker(
     private val drawRepository: DrawRepository,
     private val ticketRepository: TicketRepository,
     private val purchaseRepository: PurchaseRepository,
+    private val settingsStore: SettingsStore,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = when (val r = drawRepository.syncFromOfficial()) {
         is SyncResult.Success -> {
             settlePurchases()
+            if (r.imported > 0) notifyNewDraw()
             Result.success()
         }
 
@@ -50,6 +54,13 @@ class SyncDrawsWorker(
 
         // 网络抖动类失败：指数退避重试 3 次，还不行就等明天那次
         is SyncResult.Failure -> if (runAttemptCount >= MAX_ATTEMPTS) Result.failure() else Result.retry()
+    }
+
+    /** 订阅开启时，把最新一期开奖号通知出去。 */
+    private suspend fun notifyNewDraw() {
+        if (!settingsStore.drawResultNotify) return
+        val newest = drawRepository.observeNewest().first() ?: return
+        PurchaseNotifier.notifyNewDraw(applicationContext, newest)
     }
 
     /** 结算未处理的购买；新中奖发一次通知。整段包 runCatching：结算不能拖垮同步任务。 */
@@ -111,6 +122,7 @@ class SsqWorkerFactory(
     private val drawRepository: DrawRepository,
     private val ticketRepository: TicketRepository,
     private val purchaseRepository: PurchaseRepository,
+    private val settingsStore: SettingsStore,
 ) : WorkerFactory() {
     override fun createWorker(
         appContext: Context,
@@ -123,6 +135,7 @@ class SsqWorkerFactory(
             drawRepository,
             ticketRepository,
             purchaseRepository,
+            settingsStore,
         )
 
         else -> null

@@ -37,6 +37,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import com.ssqpick.rules.backtest as runBacktest
 
 /** 回测的时间窗口。 */
@@ -73,6 +77,7 @@ class TicketViewModel(
     private val ticketRepository: TicketRepository,
     private val drawRepository: DrawRepository,
     private val purchaseRepository: PurchaseRepository,
+    private val draftStorage: DraftStorage,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(TicketUiState())
@@ -165,6 +170,14 @@ class TicketViewModel(
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PurchaseLedger(0, 0, 0L, 0L, emptyList()))
 
+    /** 购票日历：购买日期 → 当日最高信号标记。 */
+    val calendarMarks: StateFlow<Map<LocalDate, DayMark>> =
+        combine(purchases, tickets, draws) { ps, ts, ds ->
+            dayMarksOf(ps, ts.associateBy { it.id }, ds.asReversed())
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     /** 每张存票的历史最佳：库或票变化时重算。 */
     val histories: StateFlow<Map<Long, HistoryRecord>> =
         combine(tickets, draws) { ts, draws ->
@@ -174,6 +187,8 @@ class TicketViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     init {
+        // 恢复上次的草稿：进程被杀或退出应用后，选了一半的号还在
+        _ui.value = _ui.value.copy(draft = draftStorage.load())
         viewModelScope.launch {
             _ui.value = _ui.value.copy(drawCount = drawRepository.count())
         }
@@ -207,6 +222,7 @@ class TicketViewModel(
                 else -> d.withRed(number)
             },
         )
+        draftStorage.save(_ui.value.draft)
     }
 
     fun toggleBlue(number: Int) {
@@ -223,6 +239,7 @@ class TicketViewModel(
                 else -> d.withBlue(number)
             },
         )
+        draftStorage.save(_ui.value.draft)
     }
 
     /**
@@ -239,6 +256,7 @@ class TicketViewModel(
                 d.copy(redBold = d.redBold + number, redPicked = d.redPicked - number)
             },
         )
+        draftStorage.save(_ui.value.draft)
     }
 
     /**
@@ -254,6 +272,7 @@ class TicketViewModel(
                 d.copy(blueBold = setOf(number), bluePicked = d.bluePicked - number)
             },
         )
+        draftStorage.save(_ui.value.draft)
     }
 
     fun setBoldMode(on: Boolean) {
@@ -270,6 +289,7 @@ class TicketViewModel(
 
     fun clear() {
         _ui.value = _ui.value.copy(draft = TicketDraft(), autoReds = emptySet(), autoBlues = emptySet())
+        draftStorage.save(_ui.value.draft)
     }
 
     /**
@@ -298,6 +318,7 @@ class TicketViewModel(
             autoReds = reds,
             autoBlues = blues,
         )
+        draftStorage.save(_ui.value.draft)
     }
 
     fun save(label: String? = null) {
@@ -306,6 +327,7 @@ class TicketViewModel(
         viewModelScope.launch {
             ticketRepository.save(d, label)
             _ui.value = _ui.value.copy(draft = TicketDraft(), autoReds = emptySet(), autoBlues = emptySet())
+            draftStorage.save(_ui.value.draft)
         }
     }
 
@@ -370,4 +392,37 @@ class TicketViewModel(
             }
         }
     }
+}
+
+/** 购票日历的单日标记。 */
+enum class DayMark { NONE, PENDING, MISS, WIN }
+
+/** 购买日期 → 当日标记；同一天多笔取信息量最大的一个（中奖 > 未中 > 待开奖）。 */
+fun dayMarksOf(
+    purchases: List<Purchase>,
+    ticketsById: Map<Long, Ticket>,
+    drawsAsc: List<Draw>,
+): Map<LocalDate, DayMark> {
+    val out = HashMap<LocalDate, DayMark>()
+    for (p in purchases) {
+        val ticket = ticketsById[p.ticketId] ?: continue
+        // 与购买绑定同一口径：本地时区的购买日期
+        val date = Instant.fromEpochMilliseconds(p.purchasedAtEpochMs)
+            .toLocalDateTime(TimeZone.currentSystemDefault()).date
+        val o = outcomeOf(p, ticket, drawsAsc)
+        val mark = when {
+            o.isPending -> DayMark.PENDING
+            o.hasWon -> DayMark.WIN
+            else -> DayMark.MISS
+        }
+        if (rankOf(mark) > rankOf(out[date] ?: DayMark.NONE)) out[date] = mark
+    }
+    return out
+}
+
+private fun rankOf(mark: DayMark): Int = when (mark) {
+    DayMark.WIN -> 3
+    DayMark.MISS -> 2
+    DayMark.PENDING -> 1
+    DayMark.NONE -> 0
 }

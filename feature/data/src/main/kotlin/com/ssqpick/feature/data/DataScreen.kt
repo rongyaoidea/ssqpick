@@ -1,7 +1,14 @@
 package com.ssqpick.feature.data
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,17 +18,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssqpick.designsystem.component.NumberBall
 import com.ssqpick.designsystem.sketch.SketchBarRow
@@ -30,6 +43,7 @@ import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchChip
 import com.ssqpick.designsystem.sketch.SketchLineChart
 import com.ssqpick.designsystem.sketch.SketchMetaRow
+import com.ssqpick.designsystem.sketch.SketchMiniButton
 import com.ssqpick.designsystem.sketch.SketchPalette
 import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.theme.SsqDimens
@@ -62,6 +76,26 @@ fun DataScreen(
     val trend by viewModel.trend.collectAsStateWithLifecycle()
     val sim by viewModel.sim.collectAsStateWithLifecycle()
     val simming by viewModel.simming.collectAsStateWithLifecycle()
+    val drawList by viewModel.drawList.collectAsStateWithLifecycle()
+    val notifyOn by viewModel.notifyOn.collectAsStateWithLifecycle()
+
+    // 开奖通知是订阅制：开启时顺手申请通知权限（API 33+）
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+    val onToggleNotify = {
+        viewModel.toggleDrawNotify()
+        if (!notifyOn && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    var expandedCode by rememberSaveable { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = modifier
@@ -72,7 +106,11 @@ fun DataScreen(
         item {
             Column(Modifier.padding(horizontal = 14.dp)) {
                 Spacer(Modifier.height(6.dp))
-                NextDrawCard(newest)
+                NextDrawCard(
+                    newest = newest,
+                    notifyOn = notifyOn,
+                    onToggleNotify = onToggleNotify,
+                )
                 Spacer(Modifier.height(14.dp))
             }
         }
@@ -102,14 +140,123 @@ fun DataScreen(
                     onRerun = { viewModel.runSimulation() },
                 )
                 Spacer(Modifier.height(14.dp))
+                SketchCard(seed = "data-draws-head", tilt = 0.25f) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SketchSectionTitle("往期开奖")
+                        SketchChip(label = "${drawList.size} 期", seed = "draws-count", fill = null)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "点任意一期看奖级、销售额与奖池详情。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SketchPalette.InkSoft,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
             }
         }
+        items(drawList, key = { it.code }) { draw ->
+            DrawRow(
+                draw = draw,
+                expanded = draw.code == expandedCode,
+                onToggle = {
+                    expandedCode = if (expandedCode == draw.code) null else draw.code
+                },
+            )
+        }
+        item { Spacer(Modifier.height(24.dp)) }
     }
+}
+
+/** 单期开奖行：点开看详情。为 2000+ 行性能，刻意不用手绘卡片（每行一次抖动路径没意义）。 */
+@Composable
+private fun DrawRow(draw: Draw, expanded: Boolean, onToggle: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onToggle)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "第 ${draw.code} 期 · ${draw.date}",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkSoft,
+            )
+            Text(
+                if (expanded) "收起" else "详情",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkFaint,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            draw.red.forEach { NumberBall(it, isBlue = false, size = SsqDimens.ballSizeSmall) }
+            Text("+", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+            NumberBall(draw.blue, isBlue = true, size = SsqDimens.ballSizeSmall)
+        }
+        if (expanded) {
+            Spacer(Modifier.height(6.dp))
+            if (draw.prizeGrades.isEmpty()) {
+                Text(
+                    "本地无该期奖级明细。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SketchPalette.InkSoft,
+                )
+            } else {
+                draw.prizeGrades.forEach { g ->
+                    val amount = if (g.amountPerTicket > 0) formatYuan(g.amountPerTicket) else "待公告"
+                    SketchMetaRow(
+                        label = "${g.tier.label}单注",
+                        value = amount,
+                        valueColor = if (g.amountPerTicket > 0) SketchPalette.RedInk else SketchPalette.Ink,
+                    )
+                }
+                Text(
+                    "三至六等奖为固定奖金（3000 / 200 / 10 / 5 元）。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SketchPalette.InkFaint,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            SketchMetaRow(label = "销售额", value = if (draw.sales > 0) formatYuan(draw.sales) else "—")
+            SketchMetaRow(label = "奖池", value = if (draw.poolAmount > 0) formatYuan(draw.poolAmount) else "—")
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(SketchPalette.InkFaint.copy(alpha = 0.25f)),
+        )
+    }
+}
+
+/** 金额口语化：亿 / 万 / 元。 */
+private fun formatYuan(yuan: Long): String = when {
+    yuan >= 100_000_000 -> "%.2f 亿".format(yuan / 100_000_000.0)
+    yuan >= 10_000 -> "%.0f 万".format(yuan / 10_000.0)
+    else -> "$yuan 元"
 }
 
 /** 下期开奖倒计时。历法规则来自 DrawSchedule，休市顺延以官方为准。 */
 @Composable
-private fun NextDrawCard(newest: Draw?) {
+private fun NextDrawCard(
+    newest: Draw?,
+    notifyOn: Boolean,
+    onToggleNotify: () -> Unit,
+) {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -156,6 +303,20 @@ private fun NextDrawCard(newest: Draw?) {
             "休市期间顺延，以官方公告为准。",
             style = MaterialTheme.typography.bodySmall,
             color = SketchPalette.InkSoft,
+        )
+        Spacer(Modifier.height(10.dp))
+        SketchMiniButton(
+            label = if (notifyOn) "开奖通知：已开启" else "开奖通知：关闭中（点开启）",
+            seed = "draw-notify-toggle",
+            onClick = onToggleNotify,
+            filled = notifyOn,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "开启后，每天后台同步到新一期开奖时通知一次。",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkFaint,
         )
     }
 }

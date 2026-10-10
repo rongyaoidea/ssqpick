@@ -82,9 +82,34 @@ class TicketViewModelTest {
         }
     }
 
+    private class FakeDraftStorage : DraftStorage {
+        var saved: TicketDraft? = null
+        override fun load(): TicketDraft = saved ?: TicketDraft()
+        override fun save(draft: TicketDraft) {
+            saved = draft
+        }
+    }
+
     private fun vm(
         purchaseRepo: FakePurchaseRepo = FakePurchaseRepo(),
-    ) = TicketViewModel(FakeTicketRepo(), FakeDrawRepo(), purchaseRepo)
+        draftStorage: FakeDraftStorage = FakeDraftStorage(),
+    ) = TicketViewModel(FakeTicketRepo(), FakeDrawRepo(), purchaseRepo, draftStorage)
+
+    @Test
+    fun `选号草稿会持久化并按存储恢复`() {
+        val storage = FakeDraftStorage()
+        val vm1 = vm(draftStorage = storage)
+        vm1.toggleRed(3)
+        vm1.toggleBlue(9)
+        val persisted = storage.saved!!
+        assertTrue(persisted.redPicked.contains(3))
+        assertTrue(persisted.bluePicked.contains(9))
+
+        // 新实例（模拟进程被杀后重开）从存储恢复
+        val vm2 = vm(draftStorage = storage)
+        assertTrue(vm2.ui.value.draft.redPicked.contains(3))
+        assertTrue(vm2.ui.value.draft.bluePicked.contains(9))
+    }
 
     @Test
     fun `新号码进胆码不进拖码`() {

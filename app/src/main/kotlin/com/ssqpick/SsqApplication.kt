@@ -26,7 +26,7 @@ class SsqApplication :
             androidContext(this@SsqApplication)
             modules(dataModule, machineModule, ticketModule, checkModule, featureDataModule)
         }
-        PurchaseNotifier.ensureChannel(this)
+        PurchaseNotifier.ensureChannels(this)
         SyncDrawsWorker.schedule(this)
     }
 
@@ -42,6 +42,7 @@ class SsqApplication :
                     drawRepository = GlobalContext.get().get(),
                     ticketRepository = GlobalContext.get().get(),
                     purchaseRepository = GlobalContext.get().get(),
+                    settingsStore = GlobalContext.get().get(),
                 ),
             )
             .build()
