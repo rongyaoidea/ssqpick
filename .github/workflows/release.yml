@@ -89,12 +89,16 @@ jobs:
           # 会报 "Not a signed jar file" 或直接输出空。APK 签名只能用 apksigner 读。
           APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           echo "使用 $APKSIGNER"
+          # 注意格式：keytool 输出带冒号的 "68:A9:7A:..."，apksigner 输出不带的
+          # "68a97ab2..."。必须去掉冒号并统一大小写后再比对，否则会误判。
           CERT=$("$APKSIGNER" verify --print-certs "$APK" \
-            | grep -m1 'SHA-256 digest' | awk '{print $NF}')
-          echo "APK 证书: $CERT"
+            | grep -m1 'SHA-256 digest' | awk '{print $NF}' | tr -d ':' | tr 'a-z' 'A-Z')
+          EXPECT=$(echo "${{ steps.cert.outputs.signature }}" | tr -d ':')
+          echo "APK 证书:  $CERT"
+          echo "预期证书:  $EXPECT"
 
-          if [ "$CERT" != "${{ steps.cert.outputs.signature }}" ]; then
-            echo "::error::APK 签名证书与密钥库不匹配（$CERT != ${{ steps.cert.outputs.signature }}）"
+          if [ "$CERT" != "$EXPECT" ]; then
+            echo "::error::APK 签名证书与密钥库不匹配（$CERT != $EXPECT）"
             exit 1
           fi
           echo "签名校验通过：产物确由预期 release 证书签发"
