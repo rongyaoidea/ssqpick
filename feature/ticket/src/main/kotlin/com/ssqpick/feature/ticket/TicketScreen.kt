@@ -50,12 +50,14 @@ import com.ssqpick.designsystem.sketch.SketchLineChart
 import com.ssqpick.designsystem.sketch.SketchMetaRow
 import com.ssqpick.designsystem.sketch.SketchMiniButton
 import com.ssqpick.designsystem.sketch.SketchPalette
+import com.ssqpick.designsystem.sketch.SketchRangeMarker
 import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.sketch.sketchBox
 import com.ssqpick.designsystem.theme.SsqDimens
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.Ticket
 import com.ssqpick.rules.DraftBacktest
+import com.ssqpick.rules.DraftFingerprint
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.PurchaseLedger
 import com.ssqpick.rules.TicketPurchaseSummary
@@ -84,6 +86,7 @@ fun TicketScreen(
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
     val summaries by viewModel.purchaseSummaries.collectAsStateWithLifecycle()
     val ledger by viewModel.ledger.collectAsStateWithLifecycle()
+    val fingerprint by viewModel.fingerprint.collectAsStateWithLifecycle()
 
     // 第一次记录购买时顺手申请通知权限：后台自动对奖的中奖通知靠它
     val context = LocalContext.current
@@ -134,6 +137,8 @@ fun TicketScreen(
                         onRandom = viewModel::randomFill,
                         onSave = { viewModel.save() },
                     )
+                    Spacer(Modifier.height(14.dp))
+                    FingerprintCard(fingerprint)
                     Spacer(Modifier.height(14.dp))
                     BacktestCard(
                         bt = bt,
@@ -248,6 +253,85 @@ private fun SyncCard(
     }
 }
 
+/** 选号指纹：把这组号放进历史分布里定位——只描述位置与结构，不预测。 */
+@Composable
+private fun FingerprintCard(fp: DraftFingerprint?) {
+    SketchCard(seed = "ticket-fingerprint", tilt = 0.2f) {
+        SketchSectionTitle("选号指纹")
+        Spacer(Modifier.height(8.dp))
+        if (fp == null) {
+            Text(
+                "先选几个号，这里把你这组号放进历史分布里定位。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.InkSoft,
+            )
+            return@SketchCard
+        }
+        if (fp.draws == 0) {
+            Text(
+                "同步开奖数据后，这里能把你的选号放进历史分布。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.InkSoft,
+            )
+            return@SketchCard
+        }
+        if (fp.singleShape) {
+            Text(
+                "和值 ${fp.sum} · 历史 %.0f%% 分位".format(fp.sumPercentile * 100),
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.Ink,
+            )
+            SketchRangeMarker(
+                position = fp.sumPercentile.toFloat(),
+                seed = "fp-sum",
+                modifier = Modifier.padding(vertical = 2.dp),
+            )
+            Text(
+                "淡墨带 = 九成期次所在的和值范围",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkFaint,
+            )
+        } else {
+            Text(
+                "复式/胆拖的和值不唯一，不画标尺；看下面的组成结构。",
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.InkSoft,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        SketchMetaRow(
+            label = "奇数",
+            value = "${fp.oddCount} 个（历史均值 %.1f 个）".format(fp.oddMean),
+        )
+        Spacer(Modifier.height(6.dp))
+        fp.zoneCounts.forEachIndexed { i, count ->
+            SketchBarRow(
+                label = ZONE_LABELS[i],
+                fraction = if (fp.redCount > 0) count.toFloat() / fp.redCount else 0f,
+                valueText = "$count 个",
+                subText = "历史 %.0f%%".format(fp.zoneShareMean.getOrElse(i) { 0.0 } * 100),
+                seed = "fp-zone-$i",
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "指纹只描述这组号的位置与结构，不改变中奖概率。",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+    }
+}
+
+private val ZONE_LABELS = listOf("一区 1-11", "二区 12-22", "三区 23-33")
+
+/** 折线抽稀：超过上限时等步长取样（保头保尾），几千个点画出来也是一条抖线。 */
+private fun downsampleFloats(values: List<Float>, maxPoints: Int): List<Float> {
+    if (values.size <= maxPoints) return values
+    val stride = values.size / maxPoints + 1
+    return values.filterIndexed { i, _ -> i % stride == 0 || i == values.lastIndex }
+}
+
 /** 历史回测：当前草稿在选定窗口上的表现，随选号实时更新，只描述不预测。 */
 @Composable
 private fun BacktestCard(
@@ -313,6 +397,25 @@ private fun BacktestCard(
                     seed = "bt-$label",
                 )
             }
+        }
+
+        // 逐期轨迹：慢流血 + 偶发跃升，是彩票回报最真实的样子
+        if (bt.cumulativeNet.size >= 2) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "假想累计净收益（逐期）",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkSoft,
+            )
+            val line = remember(bt.cumulativeNet) { downsampleFloats(bt.cumulativeNet, 240) }
+            SketchLineChart(
+                values = line,
+                baseline = 0f,
+                includeZero = true,
+                area = true,
+                seed = "bt-line",
+                modifier = Modifier.padding(vertical = 2.dp),
+            )
         }
 
         Spacer(Modifier.height(8.dp))
@@ -710,18 +813,48 @@ private fun PnlCard(ledger: PurchaseLedger) {
         if (ledger.pendingCount > 0) {
             SketchMetaRow(label = "待开奖", value = "${ledger.pendingCount} 笔")
         }
-        Spacer(Modifier.height(6.dp))
+        if (ledger.totalCostYuan > 0) {
+            Spacer(Modifier.height(8.dp))
+            SketchBarRow(
+                label = "回收率",
+                fraction = (ledger.totalPrizeYuan.toDouble() / ledger.totalCostYuan).toFloat().coerceIn(0f, 1f),
+                valueText = "%.0f%%".format(100.0 * ledger.totalPrizeYuan / ledger.totalCostYuan),
+                subText = "条满 = 保本；短一截就是差额",
+                seed = "pnl-recover",
+            )
+        }
+        Spacer(Modifier.height(8.dp))
         SketchLineChart(
             values = ledger.cumulativeNet,
             baseline = 0f,
             includeZero = true,
+            area = true,
+            markers = ledger.winIndices,
             seed = "pnl-line",
         )
         Text(
-            "累计净收益（奖金 − 投入），按购买时间。按你记录的笔数算的真账。",
+            "累计净收益（奖金 − 投入），按购买时间；圆点 = 中奖的那几笔。",
             style = MaterialTheme.typography.bodySmall,
             color = SketchPalette.InkSoft,
         )
+        if (ledger.tierCounts.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            PrizeTier.entries.sortedByDescending { it.rank }.forEach { tier ->
+                val count = ledger.tierCounts[tier] ?: 0L
+                if (count > 0) {
+                    val amount = ledger.tierAmounts[tier] ?: 0L
+                    SketchMetaRow(
+                        label = tier.label,
+                        value = if (amount > 0) {
+                            "$count 次 · %,d 元".format(amount)
+                        } else {
+                            "$count 次 · 金额待公告"
+                        },
+                        valueColor = if (amount > 0) SketchPalette.RedInk else SketchPalette.Ink,
+                    )
+                }
+            }
+        }
     }
 }
 

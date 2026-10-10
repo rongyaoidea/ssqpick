@@ -29,6 +29,8 @@ data class DraftBacktest(
     val costYuan: Long,
     /** 按各期实付额累加的总奖金（元）。 */
     val prizeYuan: Long,
+    /** 逐期累计净收益（元）：奖金累计 − 投入累计。轨迹线直接用。 */
+    val cumulativeNet: List<Float> = emptyList(),
 ) {
     fun redRate(k: Int): Double = if (totalBetDraws > 0) {
         (redHitBets[k] ?: 0L).toDouble() / totalBetDraws
@@ -59,12 +61,15 @@ data class DraftBacktest(
 fun backtest(draft: TicketDraft, draws: List<Draw>): DraftBacktest {
     if (!TicketRules.validate(draft).isValid) return DraftBacktest.empty(draws.size)
     val bets = TicketRules.betCount(draft)
+    val costPerDraw = bets * TicketRules.PRICE_YUAN
     val redAcc = HashMap<Int, Long>()
     val tierAcc = HashMap<PrizeTier, Long>()
+    val net = FloatArray(draws.size)
+    var netRun = 0L
     var blueHit = 0L
     var winning = 0L
     var prize = 0L
-    for (d in draws) {
+    for ((i, d) in draws.withIndex()) {
         for ((k, rc) in TicketRules.redMatchCounts(draft, d)) {
             redAcc[k] = (redAcc[k] ?: 0L) + rc
         }
@@ -72,10 +77,14 @@ fun backtest(draft: TicketDraft, draws: List<Draw>): DraftBacktest {
         // 一次遍历同时拿奖级分布与金额：奖级分布与金额同源，避免 evaluate 再算一遍
         val breakdown = TicketRules.prizeBreakdown(draft, d)
         winning += breakdown.values.sum()
+        var prizeThisDraw = 0L
         for ((tier, count) in breakdown) {
             tierAcc[tier] = (tierAcc[tier] ?: 0L) + count
-            prize += TicketRules.amountFor(tier, d) * count
+            prizeThisDraw += TicketRules.amountFor(tier, d) * count
         }
+        prize += prizeThisDraw
+        netRun += prizeThisDraw - costPerDraw
+        net[i] = netRun.toFloat()
     }
     return DraftBacktest(
         draws = draws.size,
@@ -87,6 +96,7 @@ fun backtest(draft: TicketDraft, draws: List<Draw>): DraftBacktest {
         tierCounts = tierAcc,
         costYuan = bets * draws.size * TicketRules.PRICE_YUAN,
         prizeYuan = prize,
+        cumulativeNet = net.toList(),
     )
 }
 

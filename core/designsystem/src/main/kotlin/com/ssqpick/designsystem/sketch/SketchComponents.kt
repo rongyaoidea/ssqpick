@@ -405,6 +405,10 @@ fun SketchLineChart(
     modifier: Modifier = Modifier,
     baseline: Float? = null,
     includeZero: Boolean = false,
+    /** 折线下方填淡色面积（水位感）；有 baseline 时填到基准线。 */
+    area: Boolean = false,
+    /** 要在折线上打点的下标（如中奖的那几笔）。 */
+    markers: Set<Int> = emptySet(),
     seed: Any? = null,
     lineColor: Color = SketchPalette.Ink,
     baselineColor: Color = SketchPalette.InkFaint,
@@ -432,13 +436,25 @@ fun SketchLineChart(
                 val h = size.height - 2 * pad
                 fun y(v: Float) = pad + h * (1f - (v - lo) / span)
 
+                // 顶点带固定抖动：种子决定，重组不闪
                 val rnd = Random(s)
-                val path = Path()
-                values.forEachIndexed { i, v ->
-                    val px = pad + w * i / (values.size - 1) + (rnd.nextFloat() - 0.5f) * 1.6f
-                    val py = y(v) + (rnd.nextFloat() - 0.5f) * 1.6f
-                    if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                val pts = values.mapIndexed { i, v ->
+                    Offset(
+                        pad + w * i / (values.size - 1) + (rnd.nextFloat() - 0.5f) * 1.6f,
+                        y(v) + (rnd.nextFloat() - 0.5f) * 1.6f,
+                    )
                 }
+
+                if (area) {
+                    val baseY = y(baseline ?: lo)
+                    val fill = Path()
+                    fill.moveTo(pts.first().x, baseY)
+                    pts.forEach { fill.lineTo(it.x, it.y) }
+                    fill.lineTo(pts.last().x, baseY)
+                    fill.close()
+                    drawPath(fill, lineColor.copy(alpha = 0.12f))
+                }
+
                 baseline?.let {
                     val by = y(it)
                     val bp = SketchGeometry.line(
@@ -449,7 +465,76 @@ fun SketchLineChart(
                     )
                     drawPath(bp, baselineColor, style = Stroke(width = 1.2f))
                 }
+
+                val path = Path()
+                pts.forEachIndexed { i, p ->
+                    if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+                }
                 drawPath(path, lineColor, style = Stroke(width = 2.2f, cap = StrokeCap.Round))
+
+                // 打点：纸色底盘 + 墨点，压在线上才看得清
+                markers.forEach { i ->
+                    if (i in values.indices) {
+                        drawCircle(SketchPalette.Paper, radius = 5.5f, center = pts[i])
+                        drawCircle(lineColor, radius = 3f, center = pts[i])
+                    }
+                }
+            },
+    )
+}
+
+/**
+ * 分位标尺：一条轨道 + 九成带 + 指针，把某个值放进分布里定位。
+ * 用于"你的和值在历史分布中的位置"这类展示。
+ */
+@Composable
+fun SketchRangeMarker(
+    /** 指针位置 0..1。 */
+    position: Float,
+    modifier: Modifier = Modifier,
+    bandLow: Float = 0.05f,
+    bandHigh: Float = 0.95f,
+    seed: Any? = null,
+) {
+    val s = SketchGeometry.seedOf(seed, "range")
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .drawBehind {
+                val pad = 10f
+                val w = size.width - 2 * pad
+                val cy = size.height / 2f
+                fun x(f: Float) = pad + w * f.coerceIn(0f, 1f)
+
+                // 轨道
+                val track = SketchGeometry.line(
+                    from = Offset(pad, cy),
+                    to = Offset(size.width - pad, cy),
+                    jitter = 0.8f,
+                    seed = s,
+                )
+                drawPath(track, SketchPalette.InkFaint, style = Stroke(width = 1.4f, cap = StrokeCap.Round))
+
+                // 九成带：淡墨粗线
+                drawLine(
+                    color = SketchPalette.InkFaint.copy(alpha = 0.45f),
+                    start = Offset(x(bandLow), cy),
+                    end = Offset(x(bandHigh), cy),
+                    strokeWidth = 7f,
+                    cap = StrokeCap.Round,
+                )
+
+                // 指针
+                val px = x(position)
+                drawLine(
+                    color = SketchPalette.Ink,
+                    start = Offset(px, cy - 8f),
+                    end = Offset(px, cy + 8f),
+                    strokeWidth = 2.4f,
+                    cap = StrokeCap.Round,
+                )
+                drawCircle(SketchPalette.Ink, radius = 4.5f, center = Offset(px, cy))
             },
     )
 }

@@ -45,6 +45,11 @@ class DraftBacktestTest {
         assertEquals(mapOf(PrizeTier.THIRD to 1L), r.tierCounts)
         assertEquals(2L * 2L, r.costYuan)
         assertEquals(PrizeTier.THIRD.fixedAmountYuan, r.prizeYuan)
+        // 轨迹：逐期累计净收益，末点 = 总奖金 − 总投入
+        assertEquals(2, r.cumulativeNet.size)
+        assertEquals((r.prizeYuan - r.costYuan).toDouble(), r.cumulativeNet.last().toDouble(), 1e-3)
+        // 第一期中三等奖 +2998，第二期花钱 −2 → 净 +2996
+        assertEquals(2996.0, r.cumulativeNet.last().toDouble(), 1e-3)
     }
 
     @Test

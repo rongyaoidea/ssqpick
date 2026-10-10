@@ -1,8 +1,11 @@
 package com.ssqpick.rules
 
 import com.ssqpick.model.Draw
+import com.ssqpick.model.TicketDraft
 import kotlinx.datetime.LocalDate
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NumberStatsTest {
@@ -93,5 +96,39 @@ class NumberStatsTest {
         val s = computeShape(emptyList())
         assertEquals(0, s.draws)
         assertEquals(0.0, s.sumMean, 1e-9)
+    }
+
+    @Test
+    fun `选号指纹定位`() {
+        val draws = listOf(
+            draw("2026001", listOf(1, 2, 3, 4, 5, 6), 1), // 和值 21
+            draw("2026002", listOf(11, 12, 13, 14, 15, 16), 2), // 和值 81
+        )
+        val single = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7))
+        val fp = fingerprintOf(single, draws)!!
+        assertEquals(2, fp.draws)
+        assertEquals(21, fp.sum)
+        assertTrue(fp.singleShape)
+        // 没有比 21 更小的历史和值
+        assertEquals(0.0, fp.sumPercentile, 1e-9)
+        assertEquals(3, fp.oddCount)
+        assertEquals(listOf(6, 0, 0), fp.zoneCounts)
+
+        // 复式：和值不唯一，不画标尺
+        val compound = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6, 7), bluePicked = setOf(7))
+        assertTrue(!fingerprintOf(compound, draws)!!.singleShape)
+
+        // 没选红球返回 null
+        assertNull(fingerprintOf(TicketDraft(bluePicked = setOf(1)), draws))
+    }
+
+    @Test
+    fun `空库指纹分位为零`() {
+        val fp = fingerprintOf(
+            TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7)),
+            emptyList(),
+        )!!
+        assertEquals(0, fp.draws)
+        assertEquals(0.0, fp.sumPercentile, 1e-9)
     }
 }

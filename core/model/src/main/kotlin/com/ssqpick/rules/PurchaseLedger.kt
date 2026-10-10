@@ -75,6 +75,12 @@ data class PurchaseLedger(
     val totalPrizeYuan: Long,
     /** 按购买时间排序的累计净收益（元）：奖金 − 投入。折线直接用。 */
     val cumulativeNet: List<Float>,
+    /** 时间线里中奖的那几笔（水位线打点用）。 */
+    val winIndices: Set<Int> = emptySet(),
+    /** 真账奖级分布：奖级 → 中奖笔数。 */
+    val tierCounts: Map<PrizeTier, Long> = emptyMap(),
+    /** 真账各奖级金额合计（浮动奖无公告时为 0）。 */
+    val tierAmounts: Map<PrizeTier, Long> = emptyMap(),
 ) {
     val netYuan: Long get() = totalPrizeYuan - totalCostYuan
 }
@@ -89,14 +95,35 @@ fun ledgerOf(
     var prize = 0L
     var pending = 0
     val timeline = ArrayList<Float>(ordered.size)
-    for (p in ordered) {
+    val winIndices = HashSet<Int>()
+    val tierCounts = HashMap<PrizeTier, Long>()
+    val tierAmounts = HashMap<PrizeTier, Long>()
+    ordered.forEachIndexed { index, p ->
         cost += p.costYuan
         val ticket = ticketsById[p.ticketId]
         if (ticket != null) {
             val o = outcomeOf(p, ticket, drawsAsc)
-            if (o.isPending) pending++ else prize += o.amountYuan
+            if (o.isPending) {
+                pending++
+            } else {
+                prize += o.amountYuan
+                o.topTier?.let { tier ->
+                    winIndices += index
+                    tierCounts[tier] = (tierCounts[tier] ?: 0L) + 1L
+                    tierAmounts[tier] = (tierAmounts[tier] ?: 0L) + o.amountYuan
+                }
+            }
         }
         timeline += (prize - cost).toFloat()
     }
-    return PurchaseLedger(ordered.size, pending, cost, prize, timeline)
+    return PurchaseLedger(
+        count = ordered.size,
+        pendingCount = pending,
+        totalCostYuan = cost,
+        totalPrizeYuan = prize,
+        cumulativeNet = timeline,
+        winIndices = winIndices,
+        tierCounts = tierCounts,
+        tierAmounts = tierAmounts,
+    )
 }

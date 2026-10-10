@@ -7,6 +7,7 @@ import com.ssqpick.model.Purchase
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.DraftBacktest
+import com.ssqpick.rules.DraftFingerprint
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.NumberGenerator
@@ -14,6 +15,7 @@ import com.ssqpick.rules.PurchaseLedger
 import com.ssqpick.rules.TicketPurchaseSummary
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
+import com.ssqpick.rules.fingerprintOf
 import com.ssqpick.rules.ledgerOf
 import com.ssqpick.rules.outcomeOf
 import com.ssqpick.rules.summaryOf
@@ -118,6 +120,14 @@ class TicketViewModel(
         }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** 选号指纹：当前草稿在历史分布中的位置，随选号实时更新。 */
+    val fingerprint: StateFlow<DraftFingerprint?> =
+        combine(_ui, drawRepository.observeAll()) { u, draws ->
+            fingerprintOf(u.draft, draws)
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** 每张存票的购买汇总（笔数/投入/奖金/最近一笔）。 */
     val purchaseSummaries: StateFlow<Map<Long, TicketPurchaseSummary>> =

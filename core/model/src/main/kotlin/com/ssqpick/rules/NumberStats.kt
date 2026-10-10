@@ -1,6 +1,7 @@
 package com.ssqpick.rules
 
 import com.ssqpick.model.Draw
+import com.ssqpick.model.TicketDraft
 
 /**
  * 号码冷热统计：出现频次 + 遗漏期数。
@@ -106,4 +107,50 @@ fun computeStats(draws: List<Draw>): NumberStats {
         blueOmission.putIfAbsent(b, total)
     }
     return NumberStats(total, redFreq, blueFreq, redOmission, blueOmission)
+}
+
+/**
+ * 选号指纹：把当前草稿放进历史分布里定位。
+ *
+ * 只描述"你这组号在哪、长什么样"，不含任何预测。
+ * 和值分位只在恰好 6 红（单式）时有意义——复式/胆拖的和值不唯一。
+ */
+data class DraftFingerprint(
+    val draws: Int,
+    val redCount: Int,
+    val sum: Int,
+    /** 和值在历史分布中的分位（0..1）。 */
+    val sumPercentile: Double,
+    /** 是否恰好 6 红无胆拖：和的标尺只在此时展示。 */
+    val singleShape: Boolean,
+    val oddCount: Int,
+    val oddMean: Double,
+    /** 一/二/三区（1-11/12-22/23-33）各有多少个号码。 */
+    val zoneCounts: List<Int>,
+    /** 历史三区球次占比。 */
+    val zoneShareMean: List<Double>,
+)
+
+fun fingerprintOf(draft: TicketDraft, draws: List<Draw>): DraftFingerprint? {
+    val reds = draft.redPool
+    if (reds.isEmpty()) return null
+    val sums = draws.map { it.red.sum() }.sorted()
+    val sum = reds.sum()
+    val below = if (sums.isEmpty()) 0 else sums.count { it < sum }
+    val shape = computeShape(draws)
+    return DraftFingerprint(
+        draws = draws.size,
+        redCount = reds.size,
+        sum = sum,
+        sumPercentile = if (sums.isEmpty()) 0.0 else below.toDouble() / sums.size,
+        singleShape = draft.redBold.isEmpty() && reds.size == TicketRules.RED_PICK,
+        oddCount = reds.count { it % 2 == 1 },
+        oddMean = shape.oddMean,
+        zoneCounts = listOf(
+            reds.count { it in 1..11 },
+            reds.count { it in 12..22 },
+            reds.count { it in 23..33 },
+        ),
+        zoneShareMean = shape.zoneShare,
+    )
 }

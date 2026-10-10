@@ -104,6 +104,29 @@ class PurchaseLedgerTest {
         assertEquals(-2f, ledger.cumulativeNet[0])
         assertEquals(-4f, ledger.cumulativeNet[1])
         assertEquals(-4L, ledger.netYuan)
+        // 第一笔中一等奖（金额 0），第二笔未中：打点在第一笔
+        assertEquals(setOf(0), ledger.winIndices)
+        assertEquals(mapOf(PrizeTier.FIRST to 1L), ledger.tierCounts)
+        assertEquals(mapOf(PrizeTier.FIRST to 0L), ledger.tierAmounts)
+    }
+
+    @Test
+    fun `账本奖级聚合三级固定奖`() {
+        // 红 1-5+8、蓝 7：对开奖 1-6/7 中 5 红 + 蓝 = 三等奖 3000
+        val ticket = Ticket(
+            id = 1L,
+            createdAtEpochMs = ms("2026-01-01T00:00:00Z"),
+            draft = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 8), bluePicked = setOf(7)),
+        )
+        val purchases = listOf(
+            Purchase(id = 1, ticketId = 1, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 2),
+        )
+        val ledger = ledgerOf(purchases, mapOf(1L to ticket), drawsAsc)
+        assertEquals(3000L, ledger.totalPrizeYuan)
+        assertEquals(mapOf(PrizeTier.THIRD to 1L), ledger.tierCounts)
+        assertEquals(mapOf(PrizeTier.THIRD to 3000L), ledger.tierAmounts)
+        assertEquals(setOf(0), ledger.winIndices)
+        assertEquals(2998f, ledger.cumulativeNet[0])
     }
 
     @Test
