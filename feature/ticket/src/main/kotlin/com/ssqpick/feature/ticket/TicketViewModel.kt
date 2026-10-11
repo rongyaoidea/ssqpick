@@ -10,8 +10,12 @@ import com.ssqpick.rules.DraftBacktest
 import com.ssqpick.rules.DraftFingerprint
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
+import com.ssqpick.rules.HoldSwitchReport
+import com.ssqpick.rules.MonthLedger
+import com.ssqpick.rules.NumberCoverage
 import com.ssqpick.rules.NumberGenerator
 import com.ssqpick.rules.NumberStats
+import com.ssqpick.rules.PurchaseDayEntry
 import com.ssqpick.rules.PurchaseLedger
 import com.ssqpick.rules.PurchaseOutcome
 import com.ssqpick.rules.ShapeStats
@@ -21,8 +25,12 @@ import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.TicketStatus
 import com.ssqpick.rules.computeShape
 import com.ssqpick.rules.computeStats
+import com.ssqpick.rules.dayEntriesOf
 import com.ssqpick.rules.fingerprintOf
+import com.ssqpick.rules.holdSwitchReport
 import com.ssqpick.rules.ledgerOf
+import com.ssqpick.rules.monthlyLedger
+import com.ssqpick.rules.numberCoverage
 import com.ssqpick.rules.outcomeOf
 import com.ssqpick.rules.summaryOf
 import com.ssqpick.rules.targetLabel
@@ -46,8 +54,40 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import com.ssqpick.rules.backtest as runBacktest
+
+/** 复盘页的时间范围。 */
+enum class ReviewRange(val label: String) {
+    ALL("全部"),
+    THIS_YEAR("今年"),
+    LAST_90("近90天"),
+    ;
+
+    /** 窗口起点（毫秒）；[ALL] 返回 null。 */
+    fun cutoffEpochMs(nowMs: Long = System.currentTimeMillis()): Long? {
+        val zone = TimeZone.currentSystemDefault()
+        return when (this) {
+            ALL -> null
+
+            THIS_YEAR -> {
+                val today = Instant.fromEpochMilliseconds(nowMs).toLocalDateTime(zone).date
+                LocalDate(today.year, 1, 1).atStartOfDayIn(zone).toEpochMilliseconds()
+            }
+
+            LAST_90 -> nowMs - 90L * 24 * 60 * 60 * 1000
+        }
+    }
+}
+
+/** 一笔待开奖的购买（复盘页展示用）。 */
+data class PendingEntry(
+    val ticketId: Long,
+    val costYuan: Long,
+    /** 对应期号文案（"第 X 期"或"X月X日开奖"）。 */
+    val periodLabel: String,
+)
 
 /** 回测的时间窗口。 */
 enum class BacktestRange(val label: String, val draws: Int?) {
@@ -199,11 +239,66 @@ class TicketViewModel(
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    /** 真实账本：全部购买的投入/奖金/累计净收益时间线。 */
+    private val _reviewRange = MutableStateFlow(ReviewRange.ALL)
+    val reviewRange: StateFlow<ReviewRange> = _reviewRange.asStateFlow()
+
+    fun setReviewRange(range: ReviewRange) {
+        _reviewRange.value = range
+    }
+
+    /** 复盘页的时间范围：把购买记录裁到窗口内。 */
+    private fun List<Purchase>.inReviewRange(range: ReviewRange): List<Purchase> {
+        val cut = range.cutoffEpochMs() ?: return this
+        return filter { it.purchasedAtEpochMs >= cut }
+    }
+
+    /** 真实账本：所选范围内的投入/奖金/累计净收益时间线。 */
     val ledger: StateFlow<PurchaseLedger> =
-        combine(purchases, settlements) { ps, settled -> ledgerOf(ps, settled) }
+        combine(purchases, settlements, _reviewRange) { ps, settled, range ->
+            ledgerOf(ps.inReviewRange(range), settled)
+        }
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PurchaseLedger(0, 0, 0L, 0L, emptyList()))
+
+    /** 月度账单：按月汇总（最多 12 个月），同样受范围过滤。 */
+    val monthlyBill: StateFlow<List<MonthLedger>> =
+        combine(purchases, tickets, draws, _reviewRange) { ps, ts, ds, range ->
+            monthlyLedger(ps.inReviewRange(range), ts.associateBy { it.id }, ds.asReversed())
+        }
+            .flowOn(computeDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 号码覆盖：每个号被多少张存票买过。没有存票时为 null。 */
+    val coverage: StateFlow<NumberCoverage?> = tickets
+        .map { if (it.isEmpty()) null else numberCoverage(it) }
+        .flowOn(computeDispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 守号 vs 换号的真实战绩。没有购买记录时为 null。 */
+    val holdSwitch: StateFlow<HoldSwitchReport?> =
+        combine(purchases, tickets, draws) { ps, ts, ds ->
+            if (ps.isEmpty()) null else holdSwitchReport(ps, ts.associateBy { it.id }, ds.asReversed())
+        }
+            .flowOn(computeDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 待开奖的购买（含对应的期号文案）。 */
+    val pending: StateFlow<List<PendingEntry>> =
+        combine(purchases, draws) { ps, ds ->
+            val asc = ds.asReversed()
+            ps.filter { !it.settled }
+                .map { PendingEntry(it.ticketId, it.costYuan, targetLabel(it.purchasedAtEpochMs, asc)) }
+        }
+            .flowOn(computeDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 购票日历的当天明细：点某天能看到当天买了什么。 */
+    val dayEntries: StateFlow<Map<LocalDate, List<PurchaseDayEntry>>> =
+        combine(purchases, tickets, draws) { ps, ts, ds ->
+            dayEntriesOf(ps, ts.associateBy { it.id }, ds.asReversed())
+        }
+            .flowOn(computeDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** 购票日历：购买日期 → 当日最高信号标记。 */
     val calendarMarks: StateFlow<Map<LocalDate, DayMark>> =
