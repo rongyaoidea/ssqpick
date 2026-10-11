@@ -90,21 +90,17 @@ import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 
 /**
- * 复盘页：把"选号"里读数据的那几块搬出来单独成页。
+ * 复盘页：只放"已经发生的记录"——我的战绩（真实购买账本）与购票日历。
  *
- * 选号是手在点，复盘是眼睛在读；两种节奏挤在一页时，选号要滚四屏才能点
- * 一次保存。这一页只管读：指纹、回测、战绩、购票日历，每块一个 item，
- * 不再挤在一个巨型 item 里整体测量。
+ * 选号指纹与历史回测**不在这里**：它们绑定的是"正在选的那组号"，
+ * 跟着选号走，留在选号页。
  */
 @Composable
 fun ReviewScreen(
     viewModel: TicketViewModel,
     modifier: Modifier = Modifier,
 ) {
-    val ui by viewModel.ui.collectAsStateWithLifecycle()
-    val bt by viewModel.backtest.collectAsStateWithLifecycle()
     val ledger by viewModel.ledger.collectAsStateWithLifecycle()
-    val fingerprint by viewModel.fingerprint.collectAsStateWithLifecycle()
     val calendarMarks by viewModel.calendarMarks.collectAsStateWithLifecycle()
 
     LazyColumn(
@@ -116,23 +112,6 @@ fun ReviewScreen(
         item {
             Column(Modifier.padding(horizontal = 14.dp)) {
                 Spacer(Modifier.height(6.dp))
-                FingerprintCard(fingerprint)
-                Spacer(Modifier.height(14.dp))
-            }
-        }
-        item {
-            Column(Modifier.padding(horizontal = 14.dp)) {
-                BacktestCard(
-                    bt = bt,
-                    draft = ui.draft,
-                    range = ui.backtestRange,
-                    onRange = viewModel::setBacktestRange,
-                )
-                Spacer(Modifier.height(14.dp))
-            }
-        }
-        item {
-            Column(Modifier.padding(horizontal = 14.dp)) {
                 PnlCard(ledger)
                 Spacer(Modifier.height(14.dp))
             }
@@ -143,204 +122,6 @@ fun ReviewScreen(
                 Spacer(Modifier.height(24.dp))
             }
         }
-    }
-}
-
-/** 选号指纹：把这组号放进历史分布里定位——只描述位置与结构，不预测。 */
-@Composable
-private fun FingerprintCard(fp: DraftFingerprint?) {
-    SketchCard(seed = "ticket-fingerprint", tilt = 0.2f) {
-        SketchSectionTitle("选号指纹")
-        Spacer(Modifier.height(8.dp))
-        if (fp == null) {
-            Text(
-                "先选几个号，这里把你这组号放进历史分布里定位。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = SketchPalette.InkSoft,
-            )
-            return@SketchCard
-        }
-        if (fp.draws == 0) {
-            Text(
-                "同步开奖数据后，这里能把你的选号放进历史分布。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = SketchPalette.InkSoft,
-            )
-            return@SketchCard
-        }
-        if (fp.singleShape) {
-            Text(
-                "和值 ${fp.sum} · 历史 %.0f%% 分位".format(fp.sumPercentile * 100),
-                style = MaterialTheme.typography.bodyMedium,
-                color = SketchPalette.Ink,
-            )
-            SketchRangeMarker(
-                position = fp.sumPercentile.toFloat(),
-                seed = "fp-sum",
-                modifier = Modifier.padding(vertical = 2.dp),
-            )
-            Text(
-                "淡墨带 = 九成期次所在的和值范围",
-                style = MaterialTheme.typography.labelSmall,
-                color = SketchPalette.InkFaint,
-            )
-        } else {
-            Text(
-                "复式/胆拖的和值不唯一，不画标尺；看下面的组成结构。",
-                style = MaterialTheme.typography.bodySmall,
-                color = SketchPalette.InkSoft,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        SketchMetaRow(
-            label = "奇数",
-            value = "${fp.oddCount} 个（历史均值 %.1f 个）".format(fp.oddMean),
-        )
-        Spacer(Modifier.height(6.dp))
-        fp.zoneCounts.forEachIndexed { i, count ->
-            SketchBarRow(
-                label = ZONE_LABELS[i],
-                fraction = if (fp.redCount > 0) count.toFloat() / fp.redCount else 0f,
-                valueText = "$count 个",
-                subText = "历史 %.0f%%".format(fp.zoneShareMean.getOrElse(i) { 0.0 } * 100),
-                seed = "fp-zone-$i",
-            )
-            Spacer(Modifier.height(4.dp))
-        }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            "指纹只描述这组号的位置与结构，不改变中奖概率。",
-            style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.InkSoft,
-        )
-    }
-}
-
-private val ZONE_LABELS = listOf("一区 1-11", "二区 12-22", "三区 23-33")
-
-/** 折线抽稀：超过上限时等步长取样（保头保尾），几千个点画出来也是一条抖线。 */
-private fun downsampleFloats(values: List<Float>, maxPoints: Int): List<Float> {
-    if (values.size <= maxPoints) return values
-    val stride = values.size / maxPoints + 1
-    return values.filterIndexed { i, _ -> i % stride == 0 || i == values.lastIndex }
-}
-
-/** 历史回测：当前草稿在选定窗口上的表现，随选号实时更新，只描述不预测。 */
-@Composable
-private fun BacktestCard(
-    bt: DraftBacktest?,
-    draft: com.ssqpick.model.TicketDraft,
-    range: BacktestRange,
-    onRange: (BacktestRange) -> Unit,
-) {
-    SketchCard(seed = "ticket-backtest", tilt = -0.25f) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SketchSectionTitle("历史回测")
-            if (bt != null && bt.draws > 0) {
-                SketchChip(label = "共 ${bt.draws} 期", seed = "bt-draws")
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        // 窗口切换：全部 / 近100 / 近30。全量是"从首期守到今天"的近似。
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            BacktestRange.entries.forEach { r ->
-                SketchMiniButton(
-                    label = r.label,
-                    seed = "bt-range-${r.name}",
-                    onClick = { onRange(r) },
-                    filled = r == range,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        if (bt == null || bt.totalBetDraws == 0L) {
-            Text(
-                "选出合法号码后，这里显示它在历史上的表现。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = SketchPalette.InkSoft,
-            )
-            return@SketchCard
-        }
-
-        // 分布条共用一把尺子：以实测最大值归一，理论值只写小字对照
-        val theory = remember(draft) { theoreticalRedDistribution(draft) }
-        val rows = listOf(6, 5, 4, 3).map { k ->
-            Triple("中${k}红", bt.redRate(k), theory[k] ?: 0.0)
-        } + Triple(
-            "中≤2红",
-            (0..2).sumOf { bt.redRate(it) },
-            1.0 - (3..6).sumOf { theory[it] ?: 0.0 },
-        )
-        val maxFrac = (rows.maxOf { it.second }.coerceAtLeast(1e-9)).toFloat()
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            rows.forEach { (label, rate, t) ->
-                SketchBarRow(
-                    label = label,
-                    fraction = (rate / maxFrac).toFloat(),
-                    valueText = "%.2f%%".format(rate * 100),
-                    subText = "理论 %.2f%%".format(t * 100),
-                    seed = "bt-$label",
-                )
-            }
-        }
-
-        // 逐期轨迹：慢流血 + 偶发跃升，是彩票回报最真实的样子
-        if (bt.cumulativeNet.size >= 2) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "假想累计净收益（逐期）",
-                style = MaterialTheme.typography.labelSmall,
-                color = SketchPalette.InkSoft,
-            )
-            val line = remember(bt.cumulativeNet) { downsampleFloats(bt.cumulativeNet, 240) }
-            SketchLineChart(
-                values = line,
-                baseline = 0f,
-                includeZero = true,
-                area = true,
-                seed = "bt-line",
-                modifier = Modifier.padding(vertical = 2.dp),
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-        val blueTheory = remember(draft) { theoreticalBlueHitRate(draft) }
-        SketchMetaRow(
-            label = "蓝球命中",
-            value = "%.2f%%（理论 %.2f%%）".format(bt.blueRate * 100, blueTheory * 100),
-        )
-        if (bt.tierCounts.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "中过的奖级：" + PrizeTier.entries.sortedByDescending { it.rank }
-                    .filter { (bt.tierCounts[it] ?: 0L) > 0L }
-                    .joinToString(" · ") { "${it.label} ${bt.tierCounts[it]} 注" },
-                style = MaterialTheme.typography.bodySmall,
-                color = SketchPalette.Ink,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        SketchMetaRow(label = "假装期期都买", value = "投入 %,d 元".format(bt.costYuan))
-        SketchMetaRow(
-            label = "实付奖金",
-            value = "%,d 元".format(bt.prizeYuan),
-            valueColor = if (bt.prizeYuan >= bt.costYuan) SketchPalette.Ink else SketchPalette.RedInk,
-        )
-        SketchMetaRow(label = "回报率", value = "%.1f%%".format(bt.roi * 100))
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "期望回报为负是数学，不是运气不好。全部历史 ≈ 从首期守号至今。",
-            style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.InkSoft,
-        )
     }
 }
 
