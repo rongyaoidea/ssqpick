@@ -147,12 +147,13 @@ class TicketViewModel(
      */
     val statuses: StateFlow<Map<Long, TicketStatus>> =
         combine(tickets, purchases, settlements, draws) { ts, ps, settled, ds ->
-            val newest = ds.firstOrNull()
+            val asc = ds.asReversed()
             val byTicket = ps.groupBy { it.ticketId }
             ts.associate { t ->
                 val mine = byTicket[t.id].orEmpty()
                 t.id to if (mine.isEmpty()) {
-                    TicketRules.statusOf(t, newest)
+                    // 没有购买记录：按票自己绑定的那一期判（不是最新一期）
+                    TicketRules.statusOf(t, asc)
                 } else {
                     val latest = mine.maxByOrNull { it.purchasedAtEpochMs }!!
                     when (val o = settled[latest.id]) {

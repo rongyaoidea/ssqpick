@@ -37,6 +37,8 @@ import com.ssqpick.designsystem.theme.SsqDimens
 @Composable
 fun CheckScreen(
     viewModel: CheckViewModel,
+    /** "已保存的号码"列表由 app 模块注入（它住在 feature:ticket，不反向依赖）。 */
+    savedTickets: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -99,6 +101,13 @@ fun CheckScreen(
                     Spacer(Modifier.height(12.dp))
                 }
             }
+        }
+
+        // 已保存的号码：票行自带状态与期号，这里就是对奖结果的全量视图
+        item {
+            Spacer(Modifier.height(4.dp))
+            savedTickets()
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

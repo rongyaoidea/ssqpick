@@ -293,17 +293,15 @@ object TicketRules {
     // ---------------------------------------------------------------- 存票状态
 
     /**
-     * 一张存票相对**最新一期**的状态。
+     * 一张存票相对**它自己那一期**的状态。
      *
-     * 未开奖有两种情况：本地还没有任何开奖，或票是最新一期之后存的
-     * （它的号码还没被摇过）。其余按最新一期实算：有奖就是中奖。
+     * 每张票绑定"保存时刻之后的第一期开奖"（[bindTicketDraw]）：本地还没有
+     * 这一期就是未开奖；开过就按那一期实算。不能用"最新一期"去判——
+     * 存给下一期的票，拿上一期的结果去对没有意义。
      */
-    fun statusOf(ticket: Ticket, newest: Draw?): TicketStatus {
-        if (newest == null) return TicketStatus.NotDrawn
-        val created = Instant.fromEpochMilliseconds(ticket.createdAtEpochMs)
-            .toLocalDateTime(TimeZone.currentSystemDefault()).date
-        if (created > newest.date) return TicketStatus.NotDrawn
-        val (amount, breakdown) = evaluate(ticket.draft, newest)
+    fun statusOf(ticket: Ticket, drawsAsc: List<Draw>): TicketStatus {
+        val bound = bindTicketDraw(ticket, drawsAsc) ?: return TicketStatus.NotDrawn
+        val (amount, breakdown) = evaluate(ticket.draft, bound)
         // 按"有没有奖级"而不是"有没有金额"判定：一二等奖是浮动奖，
         // 没有公告实付额时金额为 0，但奖级本身是中了的
         return if (breakdown.isNotEmpty()) {

@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchMiniButton
 import com.ssqpick.designsystem.sketch.SketchPalette
@@ -145,17 +146,7 @@ internal fun SmsSettingsDialog(
             drafts.firstOrNull()?.let { SmsCommand.of(it, times, periods) }
         }
     }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.35f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onDismiss,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
+    Dialog(onDismissRequest = onDismiss) {
         Box(
             Modifier
                 .padding(horizontal = 28.dp)

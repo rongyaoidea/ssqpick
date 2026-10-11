@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -44,15 +45,18 @@ import com.ssqpick.feature.data.DataScreen
 import com.ssqpick.feature.data.DataViewModel
 import com.ssqpick.feature.machine.MachineScreen
 import com.ssqpick.feature.machine.MachineViewModel
+import com.ssqpick.feature.ticket.ReviewScreen
+import com.ssqpick.feature.ticket.SavedTicketsSection
 import com.ssqpick.feature.ticket.TicketScreen
 import com.ssqpick.feature.ticket.TicketViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
-/** 三个顶层页。 */
+/** 五个顶层页。 */
 private enum class TopTab(val route: String, val label: String, val title: String) {
     MACHINE("machine", "摇号", "摇号机"),
     TICKET("ticket", "选号", "选号"),
     CHECK("check", "对奖", "对奖"),
+    REVIEW("review", "复盘", "复盘"),
     DATA("data", "数据", "数据"),
 }
 
@@ -79,6 +83,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppScaffold() {
     val navController = rememberNavController()
+    // 选号/对奖/复盘共用一份：草稿、筛选、短信选择在三个页之间保持一致
+    val ticketViewModel: TicketViewModel = koinViewModel()
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination
     val active = TopTab.entries.firstOrNull { tab ->
@@ -106,6 +112,7 @@ private fun AppScaffold() {
                                     TopTab.MACHINE -> Icons.Filled.Casino
                                     TopTab.TICKET -> Icons.Filled.FormatListNumbered
                                     TopTab.CHECK -> Icons.Filled.EmojiEvents
+                                    TopTab.REVIEW -> Icons.Filled.QueryStats
                                     TopTab.DATA -> Icons.Filled.Insights
                                 },
                                 contentDescription = tab.label,
@@ -127,12 +134,17 @@ private fun AppScaffold() {
                 MachineScreen(viewModel = vm)
             }
             composable(TopTab.TICKET.route) {
-                val vm: TicketViewModel = koinViewModel()
-                TicketScreen(viewModel = vm)
+                TicketScreen(viewModel = ticketViewModel)
             }
             composable(TopTab.CHECK.route) {
                 val vm: CheckViewModel = koinViewModel()
-                CheckScreen(viewModel = vm)
+                CheckScreen(
+                    viewModel = vm,
+                    savedTickets = { SavedTicketsSection(viewModel = ticketViewModel) },
+                )
+            }
+            composable(TopTab.REVIEW.route) {
+                ReviewScreen(viewModel = ticketViewModel)
             }
             composable(TopTab.DATA.route) {
                 val vm: DataViewModel = koinViewModel()

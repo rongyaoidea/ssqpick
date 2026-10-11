@@ -31,7 +31,7 @@ class TicketStatusTest {
             TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7)),
             "2026-01-02T12:00:00Z",
         )
-        assertEquals(TicketStatus.NotDrawn, TicketRules.statusOf(t, null))
+        assertEquals(TicketStatus.NotDrawn, TicketRules.statusOf(t, emptyList()))
     }
 
     @Test
@@ -40,7 +40,7 @@ class TicketStatusTest {
             TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7)),
             "2026-01-02T12:00:00Z",
         )
-        assertEquals(TicketStatus.NotDrawn, TicketRules.statusOf(t, draw()))
+        assertEquals(TicketStatus.NotDrawn, TicketRules.statusOf(t, listOf(draw())))
     }
 
     @Test
@@ -49,7 +49,7 @@ class TicketStatusTest {
             TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7)),
             "2025-12-31T12:00:00Z",
         )
-        val s = TicketRules.statusOf(t, draw())
+        val s = TicketRules.statusOf(t, listOf(draw()))
         assertTrue(s is TicketStatus.Won)
         assertEquals(PrizeTier.FIRST, (s as TicketStatus.Won).topTier)
     }
@@ -61,11 +61,29 @@ class TicketStatusTest {
             TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 8), bluePicked = setOf(7)),
             "2025-12-31T12:00:00Z",
         )
-        val s = TicketRules.statusOf(t, draw())
+        val s = TicketRules.statusOf(t, listOf(draw()))
         assertTrue(s is TicketStatus.Won)
         s as TicketStatus.Won
         assertEquals(PrizeTier.THIRD, s.topTier)
         assertEquals(PrizeTier.THIRD.fixedAmountYuan, s.amountYuan)
+    }
+
+    @Test
+    fun `按票自己那期判_不受更新的期影响`() {
+        val older = draw()
+        val newer = Draw(
+            code = "2026002",
+            date = LocalDate(2026, 1, 4),
+            red = listOf(10, 11, 12, 13, 14, 15),
+            blue = 8,
+        )
+        // 1 月 2 日存的票 → 绑 1 月 4 日那期；对 1 月 1 日那期是全中一等奖，
+        // 但对它自己那期（10-15 / 8）不中——必须判"未中奖"
+        val t = ticket(
+            TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7)),
+            "2026-01-02T12:00:00Z",
+        )
+        assertEquals(TicketStatus.Missed, TicketRules.statusOf(t, listOf(older, newer)))
     }
 
     @Test
@@ -74,6 +92,6 @@ class TicketStatusTest {
             TicketDraft(redPicked = setOf(11, 12, 13, 14, 15, 16), bluePicked = setOf(8)),
             "2025-12-31T12:00:00Z",
         )
-        assertEquals(TicketStatus.Missed, TicketRules.statusOf(t, draw()))
+        assertEquals(TicketStatus.Missed, TicketRules.statusOf(t, listOf(draw())))
     }
 }
