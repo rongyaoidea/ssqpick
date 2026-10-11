@@ -2,9 +2,13 @@ package com.ssqpick.sync
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.ssqpick.MainActivity
+import com.ssqpick.R
 import com.ssqpick.model.Draw
 
 /** 一笔中奖事件（后台结算后发通知用）。 */
@@ -71,15 +75,29 @@ object PurchaseNotifier {
         notify(context, CHANNEL_DRAW_ID, NOTIFICATION_DRAW_ID, "第 ${draw.code} 期已开奖", text)
     }
 
+    /** 点通知回到 App。没有 contentIntent 的通知，点了只会消失。 */
+    private fun openAppIntent(context: Context, id: Int): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            context,
+            id,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
     private fun notify(context: Context, channel: String, id: Int, title: String, text: String) {
         val compat = NotificationManagerCompat.from(context)
         if (!compat.areNotificationsEnabled()) return
 
         val notification = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openAppIntent(context, id))
             .setAutoCancel(true)
             .build()
         try {

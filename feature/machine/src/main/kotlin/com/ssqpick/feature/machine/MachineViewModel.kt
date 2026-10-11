@@ -56,7 +56,7 @@ class MachineViewModel(
 
     fun start() {
         closePicker()
-        controller.start(_ui.value.machine.mode)
+        controller.start(_ui.value.machine.redCount, _ui.value.machine.blueCount)
     }
 
     fun reset() {
@@ -71,11 +71,30 @@ class MachineViewModel(
         )
     }
 
+    /** 选预设：等价于把两个数量设成预设值。 */
     fun selectMode(mode: DrawMode) {
+        applyCounts(mode.redCount, mode.blueCount)
+    }
+
+    /** 自定义红球数：蓝球被牵连时一起夹到合法范围（注数上限 5 万）。 */
+    fun setRedCount(value: Int) {
+        val (red, blue) = DrawLimits.clampRed(value, _ui.value.machine.blueCount)
+        applyCounts(red, blue)
+    }
+
+    /** 自定义蓝球数：红球被牵连时一起夹到合法范围。 */
+    fun setBlueCount(value: Int) {
+        val (red, blue) = DrawLimits.clampBlue(_ui.value.machine.redCount, value)
+        applyCounts(red, blue)
+    }
+
+    private fun applyCounts(red: Int, blue: Int) {
         if (_ui.value.machine.isRunning) return
-        controller.reset()
+        // 先让控制器进入 IDLE(red, blue)，再照抄它的状态——
+        // 否则控制器稍后的 IDLE 发射会把 _ui 里的旧数量覆盖回去。
+        controller.configure(red, blue)
         _ui.value = _ui.value.copy(
-            machine = MachineUiState(mode = mode),
+            machine = controller.state.value,
             pickerOpen = false,
             pickedBets = emptyList(),
             selectedBets = emptySet(),

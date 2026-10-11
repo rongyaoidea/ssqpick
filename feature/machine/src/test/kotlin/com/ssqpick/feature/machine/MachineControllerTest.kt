@@ -15,7 +15,7 @@ class MachineControllerTest {
     @Test
     fun `单式走完全程_红6蓝1`() {
         val c = MachineController()
-        c.start(DrawMode.SIMPLE)
+        c.start(6, 1)
 
         var frames = 0
         while (c.state.value.phase != MachineUiState.Phase.COMPLETE && frames < 7_200) {
@@ -36,7 +36,7 @@ class MachineControllerTest {
         var sawNonAscendingEmission = false
         repeat(5) { run ->
             val c = MachineController()
-            c.start(DrawMode.SIMPLE)
+            c.start(6, 1)
 
             val emission = mutableListOf<Int>()
             var frames = 0
@@ -65,7 +65,7 @@ class MachineControllerTest {
     @Test
     fun `复式蓝球逐颗出完才完成_红7蓝2`() {
         val c = MachineController()
-        c.start(DrawMode.COMPOUND_SMALL)
+        c.start(7, 2)
 
         var frames = 0
         var sawSecondBlueWhileDrawing = false

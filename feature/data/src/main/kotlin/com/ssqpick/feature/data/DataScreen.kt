@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssqpick.designsystem.component.NumberBall
@@ -91,19 +92,46 @@ fun DataScreen(
     val follow by viewModel.follow.collectAsStateWithLifecycle()
     val followTarget by viewModel.followTarget.collectAsStateWithLifecycle()
 
-    // 开奖通知是订阅制：开启时顺手申请通知权限（API 33+）
+    // 开奖通知是订阅制：先把权限和系统开关问清楚，再写订阅状态。
+    // 旧写法是先 toggle 再申请权限——用户拒绝后开关停在"已开启"，实际永远收不到。
     val context = LocalContext.current
+    var pendingEnable by remember { mutableStateOf(false) }
+    var notifyHint by remember { mutableStateOf<String?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { }
+    ) { granted ->
+        if (!pendingEnable) return@rememberLauncherForActivityResult
+        pendingEnable = false
+        if (granted && NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            viewModel.setDrawNotify(true)
+        } else {
+            viewModel.setDrawNotify(false)
+            notifyHint = if (granted) {
+                "系统里的通知被关掉了，订阅未开启"
+            } else {
+                "没有通知权限，订阅未开启"
+            }
+        }
+    }
     val onToggleNotify = {
-        viewModel.toggleDrawNotify()
-        if (!notifyOn && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
+        notifyHint = null
+        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.POST_NOTIFICATIONS,
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            ) != PackageManager.PERMISSION_GRANTED
+        when {
+            notifyOn -> viewModel.setDrawNotify(false)
+
+            needsPermission -> {
+                pendingEnable = true
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+
+            !NotificationManagerCompat.from(context).areNotificationsEnabled() ->
+                notifyHint = "系统里的通知被关掉了，请先在系统设置里打开"
+
+            else -> viewModel.setDrawNotify(true)
         }
     }
 
@@ -121,6 +149,7 @@ fun DataScreen(
                 NextDrawCard(
                     newest = newest,
                     notifyOn = notifyOn,
+                    notifyHint = notifyHint,
                     onToggleNotify = onToggleNotify,
                 )
                 Spacer(Modifier.height(14.dp))
@@ -319,6 +348,7 @@ private fun formatYuan(yuan: Long): String = when {
 private fun NextDrawCard(
     newest: Draw?,
     notifyOn: Boolean,
+    notifyHint: String?,
     onToggleNotify: () -> Unit,
 ) {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -382,6 +412,14 @@ private fun NextDrawCard(
             style = MaterialTheme.typography.labelSmall,
             color = SketchPalette.InkFaint,
         )
+        notifyHint?.let {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.RedInk,
+            )
+        }
     }
 }
 

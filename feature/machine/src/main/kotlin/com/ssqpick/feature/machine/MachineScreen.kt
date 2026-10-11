@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -47,6 +50,7 @@ import com.ssqpick.designsystem.theme.SsqDimens
 import com.ssqpick.model.Bet
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.OddsInfo
+import kotlin.math.roundToInt
 
 /**
  * 摇号机主屏（手绘风格）。
@@ -124,9 +128,11 @@ fun MachineScreen(
 
         Spacer(Modifier.height(14.dp))
         ModeSelector(
-            selected = m.mode,
+            machine = m,
             enabled = !m.isRunning,
             onSelect = viewModel::selectMode,
+            onRedCount = viewModel::setRedCount,
+            onBlueCount = viewModel::setBlueCount,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -150,7 +156,7 @@ private fun ResultStrip(m: MachineUiState) {
         BallSlots(
             numbers = m.redNumbers,
             isBlue = false,
-            placeholderCount = m.mode.redCount,
+            placeholderCount = m.redCount,
         )
         Text(
             "+",
@@ -160,12 +166,12 @@ private fun ResultStrip(m: MachineUiState) {
         BallSlots(
             numbers = m.blueNumbers,
             isBlue = true,
-            placeholderCount = m.mode.blueCount,
+            placeholderCount = m.blueCount,
         )
     }
     Spacer(Modifier.height(8.dp))
     Text(
-        text = "${m.mode.label} · ${m.betCount} 注 · ${m.priceYuan} 元",
+        text = "${countLabel(m)} · ${m.plannedBets} 注 · ${m.plannedPriceYuan} 元",
         style = MaterialTheme.typography.bodySmall,
         color = SketchPalette.InkSoft,
         modifier = Modifier.fillMaxWidth(),
@@ -349,19 +355,22 @@ private fun ActionBar(
     }
 }
 
-/** 投注方式：手绘墨线框，选中的是实心。 */
+/** 投注方式：预设一排做"一键填数"，自定义两个滑条才是真正的输入。 */
 @Composable
 private fun ModeSelector(
-    selected: DrawMode,
+    machine: MachineUiState,
     enabled: Boolean,
     onSelect: (DrawMode) -> Unit,
+    onRedCount: (Int) -> Unit,
+    onBlueCount: (Int) -> Unit,
 ) {
+    val preset = presetOf(machine)
     Column {
         SketchSectionTitle("投注方式")
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             DrawMode.entries.forEach { mode ->
-                val isSelected = mode == selected
+                val isSelected = mode == preset
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -385,6 +394,75 @@ private fun ModeSelector(
                 }
             }
         }
+
+        Spacer(Modifier.height(14.dp))
+        SketchSectionTitle("自定义数量")
+        Spacer(Modifier.height(6.dp))
+        CountSlider(
+            label = "红球",
+            value = machine.redCount,
+            range = DrawLimits.RED_MIN..DrawLimits.RED_MAX,
+            enabled = enabled,
+            color = SketchPalette.RedInk,
+            onChange = onRedCount,
+        )
+        CountSlider(
+            label = "蓝球",
+            value = machine.blueCount,
+            range = DrawLimits.BLUE_MIN..DrawLimits.BLUE_MAX,
+            enabled = enabled,
+            color = SketchPalette.BlueInk,
+            onChange = onBlueCount,
+        )
+        Text(
+            "红 ${machine.redCount} · 蓝 ${machine.blueCount} → ${machine.plannedBets} 注 · " +
+                "${machine.plannedPriceYuan} 元",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+    }
+}
+
+/** 当前数量命中的预设；自定义时返回 null。 */
+private fun presetOf(m: MachineUiState): DrawMode? = DrawMode.entries.firstOrNull { it.redCount == m.redCount && it.blueCount == m.blueCount }
+
+/** 结果条上的一行说明：命中预设用预设名，否则标"自定义"。 */
+private fun countLabel(m: MachineUiState): String = presetOf(m)?.label ?: "自定义 ${m.redCount} 红 ${m.blueCount} 蓝"
+
+/** 数量滑条：红蓝各一条，值一定是整数，拖动时联动夹取在 ViewModel 里做。 */
+@Composable
+private fun CountSlider(
+    label: String,
+    value: Int,
+    range: IntRange,
+    enabled: Boolean,
+    color: Color,
+    onChange: (Int) -> Unit,
+) {
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = SketchPalette.Ink)
+            Text(
+                "$value 个",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (enabled) color else SketchPalette.InkFaint,
+            )
+        }
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange(it.roundToInt()) },
+            valueRange = range.first.toFloat()..range.last.toFloat(),
+            steps = (range.last - range.first) - 1,
+            enabled = enabled,
+            colors = SliderDefaults.colors(
+                thumbColor = color,
+                activeTrackColor = color,
+                inactiveTrackColor = SketchPalette.InkFaint,
+                disabledThumbColor = SketchPalette.InkFaint,
+                disabledActiveTrackColor = SketchPalette.InkFaint,
+                disabledInactiveTrackColor = SketchPalette.InkFaint,
+            ),
+        )
     }
 }
 

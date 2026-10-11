@@ -135,4 +135,32 @@ class DrumWorldTest {
         assertTrue(w.balls.all { V3.len(it.x, it.y, it.z) <= limit + 1e-3f })
         assertTrue(w.balls.all { it.x.isFinite() })
     }
+
+    @Test
+    fun `撞壁后径向速度被弹回`() {
+        // 无重力、无旋转：球沿 +x 径向飞出，撞壁后应被弹回（vx 变负）。
+        val w = DrumWorld(drumRadius = 1f, ballRadius = 0.2f, omega = 0f, gravity = 0f)
+        w.addBalls(1)
+        val b = w.balls[0]
+        val limit = w.drumRadius - w.ballRadius
+        b.x = limit
+        b.y = 0f
+        b.z = 0f
+        b.vx = 2f
+        b.vy = 0f
+        b.vz = 0f
+        repeat(10) { w.step(1f / 60f) }
+        assertTrue("撞壁后应被弹回，实际 vx=${b.vx}", b.vx < 0f)
+        // wallRestitution = 0.42：反弹速度应明显小于入射 2.0，也不是贴壁不动
+        assertTrue("反弹速度量级不对：vx=${b.vx}", b.vx in -2.0f..-0.3f)
+    }
+
+    @Test
+    fun `穿透深度被记录且始终很小`() {
+        val w = world()
+        repeat(3_000) { w.step(1f / 60f) }
+        // 记录的是 collideWall 纠正前的越界量：积分误差（maxSpeed × FIXED_DT ≈ 0.058）
+        // 加球间分离的推挤（最多约一个球半径）。要求远小于"真的穿出去"。
+        assertTrue("最大穿透 ${w.maxPenetration}", w.maxPenetration <= w.ballRadius)
+    }
 }

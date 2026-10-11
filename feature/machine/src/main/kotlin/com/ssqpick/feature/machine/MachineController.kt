@@ -4,13 +4,14 @@ import com.ssqpick.feature.machine.physics.Ball
 import com.ssqpick.feature.machine.physics.DrumWorld
 import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.NumberGenerator
+import com.ssqpick.rules.TicketRules
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.sqrt
 import kotlin.random.Random
 
-/** 一次摇号的模式。 */
+/** 预设的投注方式（摇号机界面的一排快捷选项）。自定义数量走 [DrawLimits]。 */
 enum class DrawMode(
     val label: String,
     val redCount: Int,
@@ -28,10 +29,12 @@ enum class DrawMode(
     val priceYuan: Long get() = betCount * 2L
 }
 
-/** 摇号机的展示状态。 */
+/** 摇号机的展示状态。数量与已出的号码分开存：摇之前就能显示"要摇几个、几注"。 */
 data class MachineUiState(
     val phase: Phase = Phase.IDLE,
-    val mode: DrawMode = DrawMode.SIMPLE,
+    /** 本次要摇的红球/蓝球个数（合法范围见 [DrawLimits]）。 */
+    val redCount: Int = DrawLimits.RED_MIN,
+    val blueCount: Int = DrawLimits.BLUE_MIN,
     val redNumbers: List<Int> = emptyList(),
     val blueNumbers: List<Int> = emptyList(),
     val redEmitted: Int = 0,
@@ -52,12 +55,16 @@ data class MachineUiState(
             Phase.COMPLETE -> "摇号完成"
         }
 
+    /** 这组数量的理论注数与金额：不依赖已出的球，摇之前和摇完都对。 */
+    val plannedBets: Long get() = DrawLimits.bets(redCount, blueCount)
+    val plannedPriceYuan: Long get() = plannedBets * 2L
+
     fun toDraft(): TicketDraft = TicketDraft(
         redPicked = redNumbers.toSet(),
         bluePicked = blueNumbers.toSet(),
     )
 
-    val betCount: Long get() = com.ssqpick.rules.TicketRules.betCount(toDraft())
+    val betCount: Long get() = TicketRules.betCount(toDraft())
     val priceYuan: Long get() = betCount * 2L
 }
 
@@ -101,16 +108,37 @@ class MachineController {
         const val EMIT_INTERVAL = 0.40f
     }
 
-    fun start(mode: DrawMode) {
+    fun start(redCount: Int, blueCount: Int) {
         if (_state.value.isRunning) return
+        // 防御：任何入口都先夹一次合法范围（界面滑条已经夹过，这里兜底）
+        val (red, blue) = DrawLimits.clampRed(redCount, blueCount)
         // 出号顺序用随机序（逐颗摇出），结果行展示时再排序
-        pendingRed = NumberGenerator.sampleOrdered(33, mode.redCount)
-        pendingBlue = NumberGenerator.sampleOrdered(16, mode.blueCount)
+        pendingRed = NumberGenerator.sampleOrdered(TicketRules.RED_TOTAL, red)
+        pendingBlue = NumberGenerator.sampleOrdered(TicketRules.BLUE_TOTAL, blue)
         emitIndex = 0
         emitCooldown = 0f
         phaseTimer = 0f
         resetWorlds()
-        _state.value = MachineUiState(phase = MachineUiState.Phase.RED_MIXING, mode = mode)
+        _state.value = MachineUiState(
+            phase = MachineUiState.Phase.RED_MIXING,
+            redCount = red,
+            blueCount = blue,
+        )
+    }
+
+    /** 只改数量：回到待机、清空结果，不开始摇。运行中忽略。 */
+    fun configure(redCount: Int, blueCount: Int) {
+        if (_state.value.isRunning) return
+        val (red, blue) = DrawLimits.clampRed(redCount, blueCount)
+        emitIndex = 0
+        emitCooldown = 0f
+        phaseTimer = 0f
+        resetWorlds()
+        _state.value = MachineUiState(
+            phase = MachineUiState.Phase.IDLE,
+            redCount = red,
+            blueCount = blue,
+        )
     }
 
     /**
@@ -118,8 +146,8 @@ class MachineController {
      * 再加一条进度线只是多余的视觉噪音。
      */
     fun progress(): Pair<Int, Int>? = when (_state.value.phase) {
-        MachineUiState.Phase.RED_DRAWING -> _state.value.redEmitted to _state.value.mode.redCount
-        MachineUiState.Phase.BLUE_DRAWING -> _state.value.blueEmitted to _state.value.mode.blueCount
+        MachineUiState.Phase.RED_DRAWING -> _state.value.redEmitted to _state.value.redCount
+        MachineUiState.Phase.BLUE_DRAWING -> _state.value.blueEmitted to _state.value.blueCount
         else -> null
     }
 
@@ -127,7 +155,11 @@ class MachineController {
     fun reset() {
         if (_state.value.isRunning) return
         resetWorlds()
-        _state.value = MachineUiState(phase = MachineUiState.Phase.IDLE, mode = _state.value.mode)
+        _state.value = MachineUiState(
+            phase = MachineUiState.Phase.IDLE,
+            redCount = _state.value.redCount,
+            blueCount = _state.value.blueCount,
+        )
     }
 
     private fun resetWorlds() {

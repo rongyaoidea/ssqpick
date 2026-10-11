@@ -235,6 +235,7 @@ class DrumWorld(
             if (b.escaping || b.settled) continue
             val d = V3.len(b.x, b.y, b.z)
             if (d <= limit || d <= 1e-6f) continue
+            if (d - limit > maxPenetration) maxPenetration = d - limit
             val nx = b.x / d
             val ny = b.y / d
             val nz = b.z / d
@@ -242,8 +243,11 @@ class DrumWorld(
             b.y = ny * limit
             b.z = nz * limit
 
+            // n 是外法线：只有朝外飞（vn > 0）才需要反弹。
+            // 之前写成 vn <= 0，结果向外穿透时被放行、向内时反而被加了一把力，
+            // wallRestitution 实际没生效，球只会贴壁滑行。
             val vn = b.vx * nx + b.vy * ny + b.vz * nz
-            if (vn <= 0f) {
+            if (vn > 0f) {
                 b.vx -= (1f + wallRestitution) * vn * nx
                 b.vy -= (1f + wallRestitution) * vn * ny
                 b.vz -= (1f + wallRestitution) * vn * nz

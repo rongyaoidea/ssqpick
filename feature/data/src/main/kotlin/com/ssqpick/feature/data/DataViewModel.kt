@@ -97,11 +97,15 @@ class DataViewModel(
     private val _notifyOn = MutableStateFlow(settingsStore.drawResultNotify)
     val notifyOn: StateFlow<Boolean> = _notifyOn.asStateFlow()
 
-    /** 切换"开奖结果通知"订阅（默认关）。 */
-    fun toggleDrawNotify() {
-        val next = !_notifyOn.value
-        settingsStore.drawResultNotify = next
-        _notifyOn.value = next
+    /**
+     * 设置"开奖结果通知"订阅（默认关）。
+     *
+     * 只有权限与系统通知开关都就绪时才会被置 true——调用方（DataScreen）先确认再调，
+     * 避免出现"界面显示已订阅、实际永远收不到"的假订阅。
+     */
+    fun setDrawNotify(on: Boolean) {
+        settingsStore.drawResultNotify = on
+        _notifyOn.value = on
     }
 
     val stats: StateFlow<NumberStats?> = draws

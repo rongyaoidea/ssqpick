@@ -66,8 +66,8 @@ class MachinePickerTest {
     private fun vm(repo: FakeTicketRepo) = MachineViewModel(repo, TicketHistoryProvider(FakeDrawRepo()))
 
     /** 同步把状态机摇到 COMPLETE（再跑一次上面的回归）。 */
-    private fun driveToComplete(vm: MachineViewModel, mode: DrawMode) {
-        vm.controller.start(mode)
+    private fun driveToComplete(vm: MachineViewModel, redCount: Int, blueCount: Int) {
+        vm.controller.start(redCount, blueCount)
         var frames = 0
         while (vm.controller.state.value.phase != MachineUiState.Phase.COMPLETE && frames < 14_400) {
             vm.controller.advance(1 / 60f)
@@ -80,7 +80,7 @@ class MachinePickerTest {
     fun `单式逐注保存一注单式票`() = runTest {
         val repo = FakeTicketRepo()
         val vm = vm(repo)
-        driveToComplete(vm, DrawMode.SIMPLE)
+        driveToComplete(vm, 6, 1)
         advanceUntilIdle() // 冲掉 init 的收集与历史刷新，_ui 才会到 COMPLETE
         assertTrue(vm.ui.value.machine.isComplete)
 
@@ -108,7 +108,7 @@ class MachinePickerTest {
     @Test
     fun `大复式展示截断两百注`() = runTest {
         val vm = vm(FakeTicketRepo())
-        driveToComplete(vm, DrawMode.COMPOUND_LARGE)
+        driveToComplete(vm, 10, 4)
         advanceUntilIdle()
 
         vm.togglePicker()
