@@ -112,6 +112,7 @@ fun TicketScreen(
     val fingerprint by viewModel.fingerprint.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val calendarMarks by viewModel.calendarMarks.collectAsStateWithLifecycle()
+    val periods by viewModel.ticketPeriods.collectAsStateWithLifecycle()
 
     // 第一次记录购买时顺手申请通知权限：后台自动对奖的中奖通知靠它
     val context = LocalContext.current
@@ -296,6 +297,7 @@ fun TicketScreen(
                             ticket = ticket,
                             history = histories[ticket.id],
                             status = statuses[ticket.id],
+                            period = periods[ticket.id],
                             summary = summaries[ticket.id],
                             selectable = ticket.draft.kind == TicketKind.SIMPLE,
                             selected = ticket.id in ui.selectedCopyIds,
@@ -903,6 +905,8 @@ private fun TicketRow(
     ticket: Ticket,
     history: HistoryRecord?,
     status: TicketStatus?,
+    /** 对应期号文案（"第 X 期"或"X月X日开奖"）。 */
+    period: String?,
     summary: TicketPurchaseSummary?,
     /** 单式票才可勾选（单式多注复制）。 */
     selectable: Boolean,
@@ -957,6 +961,14 @@ private fun TicketRow(
             }
             Spacer(Modifier.width(8.dp))
             StatusChip(status)
+        }
+        period?.let {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "对应 $it",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkFaint,
+            )
         }
         Spacer(Modifier.height(6.dp))
         // 存票可能是 20 红大复式：一行摆不下会顶出屏幕，换行显示

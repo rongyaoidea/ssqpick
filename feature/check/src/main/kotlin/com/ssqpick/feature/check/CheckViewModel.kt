@@ -6,6 +6,7 @@ import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.TicketCheckResult
 import com.ssqpick.rules.TicketRules
+import com.ssqpick.rules.ticketsForDraw
 import com.ssqpick.store.DrawRepository
 import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
@@ -20,6 +21,8 @@ data class CheckUiState(
     val checking: Boolean = false,
     val message: String? = null,
     val results: List<TicketCheckResult> = emptyList(),
+    /** 本地有、但对应的是别的期、因而没有参与本次核对的票数。 */
+    val skippedCount: Int = 0,
     val totalAmountYuan: Long = 0L,
 ) {
     val winningTickets: Int get() = results.count { it.hasWon }
@@ -70,7 +73,13 @@ class CheckViewModel(
         }
     }
 
-    /** 对本地最新一期开奖核对全部已保存号码。 */
+    /**
+     * 对本地最新一期开奖核对**属于这一期**的已保存号码。
+     *
+     * 每注号码都绑定"保存时刻之后的第一期开奖"（见 [ticketsForDraw]）：
+     * 存给下一期的票不参与本期核对——拿上一期的开奖结果去对，只会得出
+     * 一个没有意义的"未中奖"。
+     */
     fun checkAgainstLatest() {
         viewModelScope.launch {
             val draws = drawRepository.all()
@@ -78,19 +87,23 @@ class CheckViewModel(
                 _ui.value = _ui.value.copy(
                     checking = false,
                     results = emptyList(),
+                    skippedCount = 0,
                     message = "本地没有开奖数据，请先同步",
                 )
                 return@launch
             }
-            val target = draws.maxByOrNull { it.date }!!
-            val tickets = ticketRepository.all()
-            val results = tickets.map { ticket -> evaluate(ticket.id, ticket.draft, target) }
+            val asc = draws.sortedBy { it.date }
+            val target = asc.last()
+            val (mine, others) = ticketsForDraw(ticketRepository.all(), target, asc)
+            val results = mine.map { ticket -> evaluate(ticket.id, ticket.draft, target) }
             _ui.value = _ui.value.copy(
                 target = target,
                 checking = false,
                 results = results,
+                skippedCount = others.size,
                 totalAmountYuan = results.sumOf { it.totalAmountYuan },
-                message = "已对 ${tickets.size} 注核对 ${target.code} 期",
+                message = "第 ${target.code} 期：核对 ${mine.size} 注" +
+                    if (others.isEmpty()) "" else "，另有 ${others.size} 注不属于本期",
             )
         }
     }

@@ -4,21 +4,12 @@ import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.Purchase
 import com.ssqpick.model.Ticket
-import kotlinx.datetime.DateTimeUnit
-import kotlinx.datetime.Instant
-import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.plus
-import kotlinx.datetime.toLocalDateTime
 
 /**
  * 购买记录的结算口径。
  *
- * 一笔购买绑定到"购买时刻之后的第一期开奖"——买票时下一期还没开，
- * 期号不可知，所以绑定是读取时推导的纯函数，不落库。
- * 开奖当晚 21:15（[DrawSchedule.DRAW_TIME]）之后记录的购买，当晚那期
- * 已摇完，视为买的是下一期，从次日起绑——否则这笔购买会永久绑到
- * 已开的那期，下一期真中了也永远核不到。
+ * 一笔购买绑定到"购买时刻之后的第一期开奖"；具体规则（含开奖当晚 21:15
+ * 之后算下一期）在 [boundDrawFor]，与选号的期号绑定共用同一份实现。
  */
 data class PurchaseOutcome(
     val purchase: Purchase,
@@ -31,29 +22,8 @@ data class PurchaseOutcome(
     val hasWon: Boolean get() = topTier != null
 }
 
-/** [drawsAsc] 必须按日期升序（二分查找依赖有序）。 */
-fun bindDraw(purchase: Purchase, drawsAsc: List<Draw>): Draw? {
-    val purchasedAt = Instant.fromEpochMilliseconds(purchase.purchasedAtEpochMs)
-        .toLocalDateTime(TimeZone.currentSystemDefault())
-    // 开奖当晚 21:15 之后记录的购买：当晚那期已开，绑下一期
-    val threshold = if (purchasedAt.time >= DrawSchedule.DRAW_TIME) {
-        purchasedAt.date.plus(1, DateTimeUnit.DAY)
-    } else {
-        purchasedAt.date
-    }
-    return drawsAsc.getOrNull(firstIndexOnOrAfter(drawsAsc, threshold))
-}
-
-/** 首个 date >= [threshold] 的下标；O(log n)。 */
-private fun firstIndexOnOrAfter(drawsAsc: List<Draw>, threshold: LocalDate): Int {
-    var lo = 0
-    var hi = drawsAsc.size
-    while (lo < hi) {
-        val mid = (lo + hi) ushr 1
-        if (drawsAsc[mid].date < threshold) lo = mid + 1 else hi = mid
-    }
-    return lo
-}
+/** [drawsAsc] 必须按日期升序。 */
+fun bindDraw(purchase: Purchase, drawsAsc: List<Draw>): Draw? = boundDrawFor(purchase.purchasedAtEpochMs, drawsAsc)
 
 fun outcomeOf(purchase: Purchase, ticket: Ticket, drawsAsc: List<Draw>): PurchaseOutcome {
     val draw = bindDraw(purchase, drawsAsc)

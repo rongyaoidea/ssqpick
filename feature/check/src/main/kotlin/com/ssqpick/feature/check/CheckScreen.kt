@@ -67,6 +67,14 @@ fun CheckScreen(
                     ticketCount = ui.results.size,
                     winningCount = ui.winningTickets,
                 )
+                if (ui.skippedCount > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "另有 ${ui.skippedCount} 注对应其他期，未参与本次核对。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SketchPalette.InkSoft,
+                    )
+                }
                 Spacer(Modifier.height(14.dp))
             }
         }
@@ -76,7 +84,7 @@ fun CheckScreen(
                 Column(Modifier.padding(horizontal = 14.dp)) {
                     SketchCard(seed = "check-empty", tilt = 0.3f) {
                         Text(
-                            "点上面的“同步并对奖”，核对本地保存的全部号码。",
+                            "点上面的“同步并对奖”，核对本地保存的、属于本期的号码。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = SketchPalette.InkSoft,
                         )

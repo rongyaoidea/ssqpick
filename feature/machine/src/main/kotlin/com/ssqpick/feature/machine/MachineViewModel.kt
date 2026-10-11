@@ -8,6 +8,7 @@ import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.TicketRules
+import com.ssqpick.rules.targetLabel
 import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,10 +106,12 @@ class MachineViewModel(
         val state = _ui.value
         if (!state.machine.isComplete) return
         viewModelScope.launch {
-            val id = ticketRepository.save(draft = state.machine.toDraft())
+            val draft = state.machine.toDraft()
+            val id = ticketRepository.save(draft = draft)
+            val period = targetLabel(System.currentTimeMillis(), historyProvider.history(draft).asReversed())
             _ui.value = _ui.value.copy(
                 saved = true,
-                saveMessage = "已保存（#$id），共 ${state.machine.betCount} 注",
+                saveMessage = "已保存（#$id），共 ${state.machine.betCount} 注 · 对应 $period",
                 pickerOpen = false,
                 selectedBets = emptySet(),
             )
@@ -177,9 +180,13 @@ class MachineViewModel(
                     ),
                 )
             }
+            val period = targetLabel(
+                System.currentTimeMillis(),
+                historyProvider.history(state.machine.toDraft()).asReversed(),
+            )
             _ui.value = _ui.value.copy(
                 saved = true,
-                saveMessage = "已保存 ${ordered.size} 注单式票（至 #$lastId）",
+                saveMessage = "已保存 ${ordered.size} 注单式票（至 #$lastId）· 对应 $period",
                 pickerOpen = false,
                 pickedBets = emptyList(),
                 selectedBets = emptySet(),

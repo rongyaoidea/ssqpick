@@ -25,6 +25,7 @@ import com.ssqpick.rules.fingerprintOf
 import com.ssqpick.rules.ledgerOf
 import com.ssqpick.rules.outcomeOf
 import com.ssqpick.rules.summaryOf
+import com.ssqpick.rules.targetLabel
 import com.ssqpick.store.DrawRepository
 import com.ssqpick.store.PurchaseRepository
 import com.ssqpick.store.SyncResult
@@ -217,6 +218,15 @@ class TicketViewModel(
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    /** 每张票对应的期号文案：库里已有那期就写期号，否则写预计开奖日。 */
+    val ticketPeriods: StateFlow<Map<Long, String>> =
+        combine(tickets, draws) { ts, ds ->
+            val asc = ds.asReversed()
+            ts.associate { t -> t.id to targetLabel(t.createdAtEpochMs, asc) }
+        }
+            .flowOn(computeDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     init {
         // 恢复上次的草稿：进程被杀或退出应用后，选了一半的号还在
         _ui.value = _ui.value.copy(draft = draftStorage.load())
@@ -356,8 +366,14 @@ class TicketViewModel(
         val d = _ui.value.draft
         if (!TicketRules.validate(d).isValid) return
         viewModelScope.launch {
-            ticketRepository.save(d, label)
-            _ui.value = _ui.value.copy(draft = TicketDraft(), autoReds = emptySet(), autoBlues = emptySet())
+            val id = ticketRepository.save(d, label)
+            val period = targetLabel(System.currentTimeMillis(), drawRepository.all().asReversed())
+            _ui.value = _ui.value.copy(
+                draft = TicketDraft(),
+                autoReds = emptySet(),
+                autoBlues = emptySet(),
+                actionMessage = "已保存（#$id）· 对应 $period",
+            )
             draftStorage.save(_ui.value.draft)
         }
     }
