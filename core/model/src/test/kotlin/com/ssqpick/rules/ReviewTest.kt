@@ -79,6 +79,47 @@ class ReviewTest {
     }
 
     @Test
+    fun `月度账单_空输入_奖金累加_孤儿购买只计成本`() {
+        assertEquals(0, monthlyLedger(emptyList(), tickets, asc).size)
+
+        // 中 5 红 + 蓝 = 三等奖 3000（固定奖）：奖金要真的累加进账单
+        val third = Ticket(
+            id = 3L,
+            createdAtEpochMs = ms("2026-01-01T00:00:00Z"),
+            draft = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 8), bluePicked = setOf(7)),
+        )
+        val winning = listOf(
+            Purchase(id = 1, ticketId = 3, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 2),
+        )
+        val bill = monthlyLedger(winning, mapOf(3L to third), asc).single()
+        assertEquals(3000L, bill.prizeYuan)
+        assertEquals(2998L, bill.netYuan)
+
+        // 票被删掉的孤儿购买：成本照算，奖金为 0
+        val orphan = listOf(
+            Purchase(id = 9, ticketId = 99, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 5),
+        )
+        val ob = monthlyLedger(orphan, tickets, asc).single()
+        assertEquals(5L, ob.costYuan)
+        assertEquals(0L, ob.prizeYuan)
+    }
+
+    @Test
+    fun `号码覆盖_空输入与守号对照_空输入`() {
+        val cov = numberCoverage(emptyList())
+        assertEquals(0, cov.ticketCount)
+        assertEquals(33, cov.neverRed.size)
+        assertEquals(16, cov.neverBlue.size)
+        assertEquals(0, cov.maxRed)
+        assertEquals(0, cov.maxBlue)
+
+        val r = holdSwitchReport(emptyList(), tickets, asc)
+        assertEquals(0, r.hold.bets)
+        assertEquals(0, r.switch.bets)
+        assertEquals(0.0, r.hold.roi, 1e-9)
+    }
+
+    @Test
     fun `号码覆盖计数_以及从没买过的号`() {
         val cov = numberCoverage(listOf(winTicket, missTicket))
         assertEquals(2, cov.ticketCount)

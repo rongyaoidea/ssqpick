@@ -5,6 +5,8 @@ import com.ssqpick.model.Ticket
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
@@ -60,8 +62,9 @@ fun ticketsForDraw(
  */
 fun targetLabel(epochMs: Long, drawsAsc: List<Draw>): String {
     boundDrawFor(epochMs, drawsAsc)?.let { return "第 ${it.code} 期" }
-    val at = Instant.fromEpochMilliseconds(epochMs)
-        .toLocalDateTime(TimeZone.currentSystemDefault())
-    val next = DrawSchedule.nextDrawAfter(at).date
+    // 还没有这期的开奖数据：从**目标日**起算最近的日历开奖日，
+    // 不能用"现在"——库落后时那会指到更晚的一期
+    val target = targetDrawDate(epochMs)
+    val next = DrawSchedule.nextDrawAfter(LocalDateTime(target, LocalTime(0, 0))).date
     return "${next.monthNumber}月${next.dayOfMonth}日开奖"
 }

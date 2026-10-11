@@ -183,7 +183,8 @@ class TicketViewModel(
      * 每张存票的状态。
      *
      * 有购买记录：看最近一笔——绑定到哪期就报哪期的结果，没绑到就是未开奖。
-     * 无购买记录：沿用旧口径（相对最新一期的假设核对），漂在"假如买了"的语义上。
+     * 无购买记录：按**票自己绑定的那期**判（保存后第一期开奖）；不再随最新一期
+     * 刷新，否则存给下一期的票会拿上一期的结果去对。
      */
     val statuses: StateFlow<Map<Long, TicketStatus>> =
         combine(tickets, purchases, settlements, draws) { ts, ps, settled, ds ->
@@ -282,11 +283,17 @@ class TicketViewModel(
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** 待开奖的购买（含对应的期号文案）。 */
+    /**
+     * 待开奖的购买（含对应的期号文案）。
+     *
+     * 口径与账本/日历同源：**绑定的那期还没开**才算待开奖，不看 DB 的 settled
+     * 标记——那个字段只有后台 Worker 会写，手动"同步并对奖"之后 UI 不能还挂在
+     * "待开奖"上，否则同一笔在明细里已显示结果、这里还列着，两处互相矛盾。
+     */
     val pending: StateFlow<List<PendingEntry>> =
-        combine(purchases, draws) { ps, ds ->
+        combine(purchases, settlements, draws) { ps, settled, ds ->
             val asc = ds.asReversed()
-            ps.filter { !it.settled }
+            ps.filter { settled[it.id]?.isPending == true }
                 .map { PendingEntry(it.ticketId, it.costYuan, targetLabel(it.purchasedAtEpochMs, asc)) }
         }
             .flowOn(computeDispatcher)
@@ -314,11 +321,21 @@ class TicketViewModel(
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    /** 每张票对应的期号文案：库里已有那期就写期号，否则写预计开奖日。 */
+    /**
+     * 每张票对应的期号文案：库里已有那期就写期号，否则写预计开奖日。
+     *
+     * 有购买记录时看**最近一笔**（和状态徽标同一口径）——守号票的行上期号
+     * 不会和徽标指两期；没有购买记录才看保存时刻。
+     */
     val ticketPeriods: StateFlow<Map<Long, String>> =
-        combine(tickets, draws) { ts, ds ->
+        combine(tickets, purchases, draws) { ts, ps, ds ->
             val asc = ds.asReversed()
-            ts.associate { t -> t.id to targetLabel(t.createdAtEpochMs, asc) }
+            val latestByTicket = ps.groupBy { it.ticketId }
+                .mapValues { (_, list) -> list.maxByOrNull { it.purchasedAtEpochMs }!! }
+            ts.associate { t ->
+                val anchor = latestByTicket[t.id]?.purchasedAtEpochMs ?: t.createdAtEpochMs
+                t.id to targetLabel(anchor, asc)
+            }
         }
             .flowOn(computeDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())

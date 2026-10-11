@@ -255,12 +255,17 @@ class DrumWorld(
             // 壁面切向速度 = ω × r（ω 沿 Y）
             val wx = omega * b.z
             val wz = -omega * b.x
-            // 把切向速度往壁面速度靠拢，制造搅动
+            // 只把**切向**往壁面速度靠，法向分量原样加回。
+            // 之前用碰撞前的 vn 做切向分解，等于把法向残留算进切向：
+            // 实测恢复系数从 0.42 变成 ≈0.92，wallRestitution 形同虚设。
+            val vnAfter = b.vx * nx + b.vy * ny + b.vz * nz
             val blend = 0.35f
-            val tvx = b.vx - vn * nx
-            val tvz = b.vz - vn * nz
-            b.vx = tvx + (wx - tvx) * blend
-            b.vz = tvz + (wz - tvz) * blend
+            var tvx = b.vx - vnAfter * nx
+            var tvz = b.vz - vnAfter * nz
+            tvx += (wx - tvx) * blend
+            tvz += (wz - tvz) * blend
+            b.vx = tvx + vnAfter * nx
+            b.vz = tvz + vnAfter * nz
             b.spinX = ((b.spinX * 0.9f) + (tvz * 0.6f))
             b.spinY = ((b.spinY * 0.9f) + (tvx * 0.6f))
         }

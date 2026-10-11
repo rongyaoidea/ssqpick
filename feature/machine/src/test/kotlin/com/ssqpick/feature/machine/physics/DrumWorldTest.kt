@@ -151,8 +151,9 @@ class DrumWorldTest {
         b.vz = 0f
         repeat(10) { w.step(1f / 60f) }
         assertTrue("撞壁后应被弹回，实际 vx=${b.vx}", b.vx < 0f)
-        // wallRestitution = 0.42：反弹速度应明显小于入射 2.0，也不是贴壁不动
-        assertTrue("反弹速度量级不对：vx=${b.vx}", b.vx in -2.0f..-0.3f)
+        // wallRestitution = 0.42：正撞反弹速度应约等于 −0.42 × 2.0 = −0.84
+        // （区间收紧到能抓住"恢复系数被切向混合吃掉"那类错误）
+        assertTrue("反弹速度应约为 −0.84，实际 ${b.vx}", b.vx in -1.05f..-0.65f)
     }
 
     @Test

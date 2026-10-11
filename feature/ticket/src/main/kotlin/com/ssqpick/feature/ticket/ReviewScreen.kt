@@ -230,13 +230,13 @@ private fun CoverageCard(cov: NumberCoverage?, stats: NumberStats?) {
         Spacer(Modifier.height(8.dp))
         if (cov == null) {
             Text(
-                "存几注号码后，这里看你买过的号。",
+                "存几注号码后，这里看你存过的号。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = SketchPalette.InkSoft,
             )
             return@SketchCard
         }
-        Text("红球 · 颜色越深买得越多", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+        Text("红球 · 颜色越深存得越多", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
         Spacer(Modifier.height(4.dp))
         CoverageGrid(cov.redCounts, cov.maxRed, 33, isBlue = false)
         Spacer(Modifier.height(8.dp))
@@ -246,7 +246,7 @@ private fun CoverageCard(cov: NumberCoverage?, stats: NumberStats?) {
         Spacer(Modifier.height(8.dp))
         if (cov.neverRed.isNotEmpty()) {
             Text(
-                "从没买过的红球：" + cov.neverRed.take(12).joinToString(" ") { "%02d".format(it) } +
+                "从没存过的红球：" + cov.neverRed.take(12).joinToString(" ") { "%02d".format(it) } +
                     if (cov.neverRed.size > 12) " …" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = SketchPalette.InkSoft,
@@ -254,7 +254,7 @@ private fun CoverageCard(cov: NumberCoverage?, stats: NumberStats?) {
         }
         if (cov.neverBlue.isNotEmpty()) {
             Text(
-                "从没买过的蓝球：" + cov.neverBlue.take(12).joinToString(" ") { "%02d".format(it) },
+                "从没存过的蓝球：" + cov.neverBlue.take(12).joinToString(" ") { "%02d".format(it) },
                 style = MaterialTheme.typography.labelSmall,
                 color = SketchPalette.InkSoft,
             )
@@ -266,7 +266,7 @@ private fun CoverageCard(cov: NumberCoverage?, stats: NumberStats?) {
             val all = (1..33).map { stats.redFrequency[it] ?: 0 }.average()
             Spacer(Modifier.height(6.dp))
             Text(
-                "你买过的号历史平均出现 %.1f 次，全体平均 %.1f 次 —— 冷热不改变下一期概率。"
+                "你存过的号历史平均出现 %.1f 次，全体平均 %.1f 次 —— 冷热不改变下一期概率。"
                     .format(mine, all),
                 style = MaterialTheme.typography.labelSmall,
                 color = SketchPalette.InkFaint,

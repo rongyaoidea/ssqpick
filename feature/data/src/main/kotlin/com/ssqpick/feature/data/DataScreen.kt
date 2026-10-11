@@ -113,6 +113,14 @@ fun DataScreen(
             }
         }
     }
+    // 持久化的订阅状态以系统实际为准：用户在系统设置里关掉通知（或撤了权限）后
+    // 重开 App，不能还显示"已开启"
+    LaunchedEffect(Unit) {
+        if (notifyOn && !NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            viewModel.setDrawNotify(false)
+            notifyHint = "系统里的通知被关掉了，订阅已自动关闭"
+        }
+    }
     val onToggleNotify = {
         notifyHint = null
         val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
