@@ -70,6 +70,7 @@ import com.ssqpick.model.TicketKind
 import com.ssqpick.rules.DraftBacktest
 import com.ssqpick.rules.DraftFingerprint
 import com.ssqpick.rules.HistoryRecord
+import com.ssqpick.rules.NumberCoverage
 import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.PurchaseLedger
 import com.ssqpick.rules.SmsCommand
@@ -106,6 +107,7 @@ fun SavedTicketsSection(
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
     val summaries by viewModel.purchaseSummaries.collectAsStateWithLifecycle()
     val periods by viewModel.ticketPeriods.collectAsStateWithLifecycle()
+    val nextCoverage by viewModel.nextDrawCoverage.collectAsStateWithLifecycle()
 
     // 第一次记录购买时顺手申请通知权限：后台自动对奖的中奖通知靠它
     val context = LocalContext.current
@@ -216,6 +218,11 @@ fun SavedTicketsSection(
                     modifier = Modifier.weight(1f),
                 )
             }
+        }
+        // 下一期覆盖：等开奖的票盖住了哪些号——买下一期前看一眼缺哪些
+        nextCoverage?.let { cov ->
+            Spacer(Modifier.height(10.dp))
+            NextDrawCoverageCard(cov)
         }
         ui.actionMessage?.let {
             Spacer(Modifier.height(4.dp))
@@ -328,6 +335,50 @@ fun SavedTicketsSection(
             onDismiss = { renameTarget = null },
             onConfirm = { label -> viewModel.rename(target, label) },
         )
+    }
+}
+
+/**
+ * 下一期覆盖：等开奖的存票覆盖了哪些号。
+ *
+ * 与复盘页"号码覆盖"的分工：复盘那只算存过的全部票（历史口径），
+ * 这里只算**等下一期开奖**的票——买之前看缺口用。
+ */
+@Composable
+private fun NextDrawCoverageCard(cov: NumberCoverage) {
+    SketchCard(seed = "next-coverage", tilt = -0.2f) {
+        SketchSectionTitle("下一期覆盖")
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "${cov.ticketCount} 张等开奖的票：红 ${cov.redCounts.size}/33 · 蓝 ${cov.blueCounts.size}/16",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("红球 · 颜色越深覆盖的票越多", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+        Spacer(Modifier.height(4.dp))
+        CoverageGrid(cov.redCounts, cov.maxRed, 33, isBlue = false)
+        Spacer(Modifier.height(8.dp))
+        Text("蓝球", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+        Spacer(Modifier.height(4.dp))
+        CoverageGrid(cov.blueCounts, cov.maxBlue, 16, isBlue = true)
+        Spacer(Modifier.height(8.dp))
+        if (cov.neverRed.isNotEmpty()) {
+            Text(
+                "没覆盖的红球：" + cov.neverRed.take(12).joinToString(" ") { "%02d".format(it) } +
+                    if (cov.neverRed.size > 12) " …" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkSoft,
+            )
+        }
+        if (cov.neverBlue.isNotEmpty()) {
+            Text(
+                "没覆盖的蓝球：" + cov.neverBlue.take(12).joinToString(" ") { "%02d".format(it) } +
+                    if (cov.neverBlue.size > 12) " …" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkSoft,
+            )
+        }
     }
 }
 

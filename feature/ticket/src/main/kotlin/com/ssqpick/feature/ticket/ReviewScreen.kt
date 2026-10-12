@@ -273,8 +273,9 @@ private fun CoverageCard(cov: NumberCoverage?, stats: NumberStats?) {
     }
 }
 
+/** 号码覆盖网格：复盘页与"已保存的号码"的下一期覆盖共用。 */
 @Composable
-private fun CoverageGrid(counts: Map<Int, Int>, maxCount: Int, total: Int, isBlue: Boolean) {
+internal fun CoverageGrid(counts: Map<Int, Int>, maxCount: Int, total: Int, isBlue: Boolean) {
     val base = if (isBlue) SketchPalette.BlueBall else SketchPalette.RedBall
     FlowRow(
         modifier = Modifier.fillMaxWidth(),

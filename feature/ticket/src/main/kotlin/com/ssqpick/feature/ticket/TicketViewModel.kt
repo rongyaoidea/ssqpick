@@ -275,6 +275,20 @@ class TicketViewModel(
         .flowOn(computeDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /**
+     * 下一期覆盖：只统计**等开奖**的存票（口径与状态徽标同源，含没记购买的存票）。
+     *
+     * 用途是"买下一期前看一眼缺哪些号"：红/蓝各有几个号被覆盖、哪些还没。
+     * 没有等开奖的票时为 null——那时卡片没有可说的内容，不占位。
+     */
+    val nextDrawCoverage: StateFlow<NumberCoverage?> =
+        combine(tickets, statuses) { ts, st ->
+            val waiting = ts.filter { st[it.id] == TicketStatus.NotDrawn }
+            if (waiting.isEmpty()) null else numberCoverage(waiting)
+        }
+            .flowOn(computeDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** 守号 vs 换号的真实战绩。没有购买记录时为 null。 */
     val holdSwitch: StateFlow<HoldSwitchReport?> =
         combine(purchases, tickets, draws) { ps, ts, ds ->
@@ -343,8 +357,11 @@ class TicketViewModel(
     init {
         // 恢复上次的草稿：进程被杀或退出应用后，选了一半的号还在
         _ui.value = _ui.value.copy(draft = draftStorage.load())
+        // 已存期数跟着开奖库走：后台 Worker 每拉回一期，这里立刻涨。
+        // 之前只在 init 查一次、手动同步成功时再写一次——Worker 先一步同步后，
+        // "已存 N 期"会停在旧值（表现就是同步后"期数不更新"）。
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(drawCount = drawRepository.count())
+            draws.collect { list -> _ui.value = _ui.value.copy(drawCount = list.size.toLong()) }
         }
         viewModelScope.launch {
             drawRepository.observeNewest().collect { newest ->
@@ -565,7 +582,6 @@ class TicketViewModel(
                 is SyncResult.Success ->
                     _ui.value = _ui.value.copy(
                         syncMessage = "新增 ${r.imported} 期，本地共 ${r.totalDraws} 期",
-                        drawCount = r.totalDraws,
                     )
 
                 SyncResult.AlreadyUpToDate ->

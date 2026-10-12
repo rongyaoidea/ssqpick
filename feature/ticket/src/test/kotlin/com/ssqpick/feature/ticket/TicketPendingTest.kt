@@ -23,6 +23,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -102,6 +103,65 @@ class TicketPendingTest {
         advanceUntilIdle()
         assertEquals(1, model.pending.value.size)
         assertEquals(1L, model.pending.value.first().ticketId)
+    }
+
+    @Test
+    fun `下一期覆盖只统计等开奖的票`() = runTest {
+        val pending = Ticket(
+            id = 1L,
+            createdAtEpochMs = ms("2026-01-03T10:00:00Z"),
+            draft = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7)),
+        )
+        val drawn = Ticket(
+            id = 2L,
+            createdAtEpochMs = ms("2026-01-03T10:00:00Z"),
+            draft = TicketDraft(redPicked = setOf(10, 11, 12, 13, 14, 15), bluePicked = setOf(8)),
+        )
+        // 3 号票只存没买：绑定"保存后的第一期"，库里还没有 → 也算等开奖
+        val savedOnly = Ticket(
+            id = 3L,
+            createdAtEpochMs = ms("2026-01-06T10:00:00Z"),
+            draft = TicketDraft(redPicked = setOf(20, 21, 22, 23, 24, 25), bluePicked = setOf(9)),
+        )
+        val purchases = listOf(
+            // 1 月 5 日买 → 绑下一期（库里没有）
+            Purchase(id = 1, ticketId = 1, purchasedAtEpochMs = ms("2026-01-05T10:00:00Z"), costYuan = 2),
+            // 1 月 3 日买 → 绑 1 月 4 日那期（库里已有）→ 已开奖，不计入
+            Purchase(id = 2, ticketId = 2, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 2),
+        )
+        val draw = Draw("2026002", LocalDate.parse("2026-01-04"), listOf(1, 2, 3, 4, 5, 6), 7)
+        val model = TicketViewModel(
+            ticketRepository = Tickets(listOf(pending, drawn, savedOnly)),
+            drawRepository = Draws(listOf(draw)),
+            purchaseRepository = Purchases(purchases),
+            draftStorage = Drafts(),
+            computeDispatcher = dispatcher,
+        )
+        backgroundScope.launch { model.nextDrawCoverage.collect { } }
+        advanceUntilIdle()
+
+        val cov = model.nextDrawCoverage.value!!
+        assertEquals(2, cov.ticketCount)
+        assertEquals(setOf(1, 2, 3, 4, 5, 6, 20, 21, 22, 23, 24, 25), cov.redCounts.keys)
+        assertEquals(setOf(7, 9), cov.blueCounts.keys)
+        // 已开奖的 2 号票（10-15 / 8）不进下一期覆盖
+        assertTrue(10 !in cov.redCounts.keys)
+        assertEquals(21, cov.neverRed.size)
+    }
+
+    @Test
+    fun `没有等开奖的票时下一期覆盖为 null`() = runTest {
+        val p = Purchase(id = 1, ticketId = 1, purchasedAtEpochMs = ms("2026-01-03T10:00:00Z"), costYuan = 2)
+        val draw = Draw(
+            code = "2026002",
+            date = LocalDate.parse("2026-01-04"),
+            red = listOf(1, 2, 3, 4, 5, 6),
+            blue = 7,
+        )
+        val model = vm(listOf(p), listOf(draw))
+        backgroundScope.launch { model.nextDrawCoverage.collect { } }
+        advanceUntilIdle()
+        assertEquals(null, model.nextDrawCoverage.value)
     }
 
     @Test

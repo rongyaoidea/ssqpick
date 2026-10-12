@@ -137,6 +137,27 @@ class TicketViewModelTest {
     }
 
     @Test
+    fun `新开奖数据进来后已存期数跟着涨`() = runTest {
+        val repo = ReactiveDrawRepo()
+        repo.state.value = listOf(
+            Draw("2026001", kotlinx.datetime.LocalDate.parse("2026-01-01"), listOf(1, 2, 3, 4, 5, 6), 1),
+        )
+        val vm = reactiveVm(repo)
+        advanceUntilIdle()
+        assertEquals(1L, vm.ui.value.drawCount)
+
+        // 模拟"每开一期"：库里多一期，卡片上的"已存 N 期"要立刻涨
+        repo.state.value += Draw(
+            "2026002",
+            kotlinx.datetime.LocalDate.parse("2026-01-03"),
+            listOf(7, 8, 9, 10, 11, 12),
+            2,
+        )
+        advanceUntilIdle()
+        assertEquals(2L, vm.ui.value.drawCount)
+    }
+
+    @Test
     fun `选号草稿会持久化并按存储恢复`() {
         val storage = FakeDraftStorage()
         val vm1 = vm(draftStorage = storage)
