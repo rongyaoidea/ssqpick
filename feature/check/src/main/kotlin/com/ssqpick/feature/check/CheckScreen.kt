@@ -32,6 +32,9 @@ import com.ssqpick.designsystem.theme.SsqDimens
 /**
  * 对奖：拉取最新一期开奖，核对全部已保存号码并算出总奖金。
  *
+ * 结果区**只列中奖的号码**：未中奖的行不在这里重复"号码 #X 未中奖"，
+ * 下方"已保存的号码"每行自带状态徽标，合计卡也已给出中奖注数。
+ *
  * 手绘只作用在外壳；开奖号码与金额数字保持清晰，中奖标签用荧光笔底。
  */
 @Composable
@@ -42,6 +45,9 @@ fun CheckScreen(
     modifier: Modifier = Modifier,
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
+    // 只铺中奖的：未中奖的号码在下方"已保存的号码"里已有"未中奖"徽标，
+    // 逐条再渲染一遍结果卡只是重复信息
+    val winners = ui.results.filter { it.hasWon }
 
     LazyColumn(
         modifier = modifier
@@ -95,7 +101,7 @@ fun CheckScreen(
                 }
             }
         } else {
-            items(ui.results, key = { it.ticketId }) { r ->
+            items(winners, key = { it.ticketId }) { r ->
                 Column(Modifier.padding(horizontal = 14.dp)) {
                     ResultCard(r, viewModel::tierLines)
                     Spacer(Modifier.height(12.dp))
@@ -103,7 +109,8 @@ fun CheckScreen(
             }
         }
 
-        // 已保存的号码：票行自带状态与期号，这里就是对奖结果的全量视图
+        // 已保存的号码：票行自带状态与期号，对奖结果的全量视图在这里
+        // （上面的结果卡只列中奖的，不重复未中奖的行）
         item {
             Spacer(Modifier.height(4.dp))
             savedTickets()
@@ -176,6 +183,7 @@ private fun SummaryCard(
     }
 }
 
+/** 中奖号码的结果卡：奖级明细 + 小计。未中奖的号码不在这里重复（见存票列表）。 */
 @Composable
 private fun ResultCard(
     result: com.ssqpick.model.TicketCheckResult,
@@ -196,37 +204,30 @@ private fun ResultCard(
                 color = SketchPalette.Ink,
             )
             SketchChip(
-                label = if (result.hasWon) {
+                // 一二等奖无公告时金额为 0：只报奖级，不编金额
+                label = if (result.totalAmountYuan > 0) {
                     "${result.topTier?.label} · %,d 元".format(result.totalAmountYuan)
                 } else {
-                    "未中奖"
+                    result.topTier?.label ?: "中奖"
                 },
-                seed = "check-chip-${result.ticketId}-${result.hasWon}",
-                fill = if (result.hasWon) SketchPalette.Highlighter else null,
+                seed = "check-chip-${result.ticketId}",
+                fill = SketchPalette.Highlighter,
             )
         }
         Spacer(Modifier.height(8.dp))
-        if (result.hasWon) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                tierLines(result).forEach { line ->
-                    Text(
-                        line,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = SketchPalette.Ink,
-                    )
-                }
-                SketchDivider(seed = "check-div-${result.ticketId}")
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            tierLines(result).forEach { line ->
                 Text(
-                    "小计 %,d 元（共 ${result.winningBetCount} 注）".format(result.totalAmountYuan),
+                    line,
                     style = MaterialTheme.typography.bodyMedium,
                     color = SketchPalette.Ink,
                 )
             }
-        } else {
+            SketchDivider(seed = "check-div-${result.ticketId}")
             Text(
-                "本期未命中任何奖级。",
+                "小计 %,d 元（共 ${result.winningBetCount} 注）".format(result.totalAmountYuan),
                 style = MaterialTheme.typography.bodyMedium,
-                color = SketchPalette.InkSoft,
+                color = SketchPalette.Ink,
             )
         }
     }
