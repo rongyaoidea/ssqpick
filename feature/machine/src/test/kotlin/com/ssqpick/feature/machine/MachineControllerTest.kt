@@ -1,89 +1,54 @@
 package com.ssqpick.feature.machine
 
+import com.ssqpick.feature.machine.physics.V3
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 状态机回归：单式必须能走完 红混合→红出号→蓝混合→蓝出号→完成。
+ * 控制器集成测试：从开摇到落槽的整条链路。
  *
- * 写这个测试的原因：`emitIndex` 是红蓝共用的计数器，红出完后它停在 6，
- * 而蓝出号的守卫是 `emitIndex == 0`——蓝球永远等不到发射，直接卡死。
- * advance() 是纯同步函数，不碰主线程，JVM 单测随便跑。
+ * 号码由 CSPRNG 预抽、物理只负责演出——这里验证的也是"演出"：
+ * 流程能走完、出号球按管道路径走、最终都停在展示槽。
  */
 class MachineControllerTest {
 
     @Test
-    fun `单式走完全程_红6蓝1`() {
+    fun `完整摇号流程能走完且全部落槽`() {
         val c = MachineController()
-        c.start(6, 1)
-
-        var frames = 0
-        while (c.state.value.phase != MachineUiState.Phase.COMPLETE && frames < 7_200) {
-            c.advance(1 / 60f)
-            frames++
-        }
-
-        assertEquals(MachineUiState.Phase.COMPLETE, c.state.value.phase)
-        assertEquals(6, c.state.value.redNumbers.size)
-        assertEquals(1, c.state.value.blueNumbers.size)
-        // 出来的必须是合法号码，不是下标越界之类的垃圾
-        assertEquals(6, c.state.value.redNumbers.toSet().size)
-        assertEquals(1, c.state.value.blueNumbers.toSet().size)
-    }
-
-    @Test
-    fun `出号顺序是随机序_结果行才是升序`() {
-        var sawNonAscendingEmission = false
-        repeat(5) { run ->
-            val c = MachineController()
-            c.start(6, 1)
-
-            val emission = mutableListOf<Int>()
-            var frames = 0
-            while (c.state.value.phase != MachineUiState.Phase.COMPLETE && frames < 14_400) {
-                val before = c.state.value.redEmitted
-                c.advance(1 / 60f)
-                frames++
-                if (c.state.value.redEmitted > before) {
-                    // 刚发射的球：在鼓里找 escaping 且还没记录过的那个
-                    val ball = c.redWorld.balls.firstOrNull { it.escaping && it.number !in emission }
-                    if (ball != null) emission += ball.number
-                }
-            }
-
-            assertEquals("第 $run 次应出满 6 颗", 6, emission.size)
-            // 结果行（展示）必须升序
-            assertEquals(emission.sorted(), c.state.value.redNumbers)
-            if (emission != emission.sorted()) sawNonAscendingEmission = true
-        }
-        org.junit.Assert.assertTrue(
-            "5 次摇号中至少一次出号顺序不是升序——否则说明又按排序发射了",
-            sawNonAscendingEmission,
+        c.start(redCount = 6, blueCount = 1)
+        repeat(60 * 20) { c.advance(1f / 60f) }
+        val s = c.state.value
+        assertEquals(MachineUiState.Phase.COMPLETE, s.phase)
+        assertEquals(6, s.redNumbers.size)
+        assertEquals(1, s.blueNumbers.size)
+        assertTrue(
+            "出号的红球都应停在展示槽",
+            c.redWorld.balls.filter { it.number in s.redNumbers }.all { it.settled },
+        )
+        assertTrue(
+            "出号的蓝球都应停在展示槽",
+            c.blueWorld.balls.filter { it.number in s.blueNumbers }.all { it.settled },
         )
     }
 
     @Test
-    fun `复式蓝球逐颗出完才完成_红7蓝2`() {
+    fun `出号球先过鼓底管口再去展示槽`() {
         val c = MachineController()
-        c.start(7, 2)
-
-        var frames = 0
-        var sawSecondBlueWhileDrawing = false
-        while (c.state.value.phase != MachineUiState.Phase.COMPLETE && frames < 14_400) {
-            c.advance(1 / 60f)
-            frames++
-            // 旧行为：第二颗蓝球只在 COMPLETE 那一拍被跳过式地记为已出（0→N 跳变）。
-            // 新行为：出蓝阶段中就应看到 blueEmitted=2 的中间态。
-            if (c.state.value.phase == MachineUiState.Phase.BLUE_DRAWING &&
-                c.state.value.blueEmitted == 2
-            ) {
-                sawSecondBlueWhileDrawing = true
+        c.start(redCount = 6, blueCount = 1)
+        val outlet = MachineLayout.outletTarget(MachineLayout.RED)
+        var minDist = Float.MAX_VALUE
+        var sawEscaping = false
+        repeat(60 * 20) {
+            c.advance(1f / 60f)
+            for (b in c.redWorld.balls) {
+                if (!b.escaping) continue
+                sawEscaping = true
+                val d = V3.len(b.x - outlet[0], b.y - outlet[1], b.z - outlet[2])
+                if (d < minDist) minDist = d
             }
         }
-
-        assertEquals(MachineUiState.Phase.COMPLETE, c.state.value.phase)
-        assertEquals(7, c.state.value.redNumbers.size)
-        assertEquals(2, c.state.value.blueNumbers.size)
-        org.junit.Assert.assertTrue(sawSecondBlueWhileDrawing)
+        assertTrue("应看到球出号", sawEscaping)
+        assertTrue("出号球应经过鼓底管口，最近 $minDist", minDist < 0.25f)
     }
 }

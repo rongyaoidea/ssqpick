@@ -101,11 +101,11 @@ fun DrumStage(
         val blueCenter = Offset(w * 0.71f, h * 0.44f)
 
         drawDrum(
-            controller.redWorld, redCenter, drumR, RED_BALL, ink, rim, well, measurer,
+            controller.redWorld, MachineLayout.RED, redCenter, drumR, RED_BALL, ink, rim, well, measurer,
             redCache, SketchGeometry.seedOf("drum-red"),
         )
         drawDrum(
-            controller.blueWorld, blueCenter, drumR, BLUE_BALL, ink, rim, well, measurer,
+            controller.blueWorld, MachineLayout.BLUE, blueCenter, drumR, BLUE_BALL, ink, rim, well, measurer,
             blueCache, SketchGeometry.seedOf("drum-blue"),
         )
 
@@ -133,6 +133,7 @@ fun DrumStage(
  */
 private fun DrawScope.drawDrum(
     world: DrumWorld,
+    spec: DrumRenderSpec,
     center: Offset,
     radius: Float,
     ballColor: Color,
@@ -196,6 +197,37 @@ private fun DrawScope.drawDrum(
         val py = center.y + (radius * 0.93f * sin(a)).toFloat()
         drawCircle(color = rim.copy(alpha = 0.5f), radius = radius * 0.032f, center = Offset(px, py))
     }
+
+    // 出号管：鼓底一小段手绘管线，画到物理管出口（MachineLayout.chuteExitTarget）的高度。
+    // 出号的球从这里竖直穿过，不再"穿玻璃"飞出去。
+    val rimY = center.y + radius * spec.drumRadius
+    val tubeEndY = center.y + radius * (spec.drumRadius + spec.ballScale * 0.9f)
+    val tubeTop = ballR * 1.5f
+    val tubeBottom = ballR * 1.05f
+    drawLine(
+        color = rim,
+        start = Offset(center.x - tubeTop, rimY),
+        end = Offset(center.x - tubeBottom, tubeEndY),
+        strokeWidth = 1.6f,
+        cap = StrokeCap.Round,
+    )
+    drawLine(
+        color = rim,
+        start = Offset(center.x + tubeTop, rimY),
+        end = Offset(center.x + tubeBottom, tubeEndY),
+        strokeWidth = 1.6f,
+        cap = StrokeCap.Round,
+    )
+    // 承接轨：展示槽那一排下方一条淡线，球沿它滑到位
+    val trayY = center.y + radius * (spec.drumRadius + spec.ballScale * 1.2f)
+    val trayHalf = radius * ((spec.slotCount - 1) / 2f * spec.slotSpacing * 0.55f + 0.14f)
+    drawLine(
+        color = rim.copy(alpha = 0.55f),
+        start = Offset(center.x - trayHalf, trayY),
+        end = Offset(center.x + trayHalf, trayY),
+        strokeWidth = 1.2f,
+        cap = StrokeCap.Round,
+    )
 }
 
 /** 球的投影与绘制。z 越大表示越靠近观察者：更大、后画。 */
@@ -213,12 +245,13 @@ private fun DrawScope.drawBall(
     val depth = 1f + b.z * 0.12f
     val r = ballRadius * depth
 
-    // 出号中的球向目标滑动并淡出，读起来像"落进出球槽"
+    // 出号中的球滑向展示槽并淡出，读起来像"落进出球槽"。
+    // 淡出按**最终落点**算：分段牵引时若按当前段目标算，球会在管口就淡没。
     var alpha = 1f
     if (b.escaping) {
-        val dx = b.x - b.attractX
-        val dy = b.y - b.attractY
-        val dz = b.z - b.attractZ
+        val dx = b.x - b.slotX
+        val dy = b.y - b.slotY
+        val dz = b.z - b.slotZ
         alpha = (sqrt(dx * dx + dy * dy + dz * dz) * 2.4f).coerceIn(0f, 1f)
     }
 
@@ -239,6 +272,8 @@ private fun DrawScope.drawBall(
         val scale = (r * 0.8f) / refRadius
         withTransform({
             translate(sx, sy)
+            // 号码随球自转：真机的球是滚动的，数字跟着转才像在滚
+            rotate(b.rollAngle, pivot = Offset.Zero)
             scale(scale, scale, pivot = Offset.Zero)
         }) {
             drawText(

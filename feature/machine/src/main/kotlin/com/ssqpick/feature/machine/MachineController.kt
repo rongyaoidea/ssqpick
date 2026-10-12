@@ -82,11 +82,14 @@ data class MachineUiState(
  */
 class MachineController {
 
-    val redWorld = DrumWorld(drumRadius = 1f, ballRadius = 0.25f, omega = 5.2f).apply {
+    // 待机时电机停、风机关（omega=0），球堆在鼓底；开摇才加速转起来。
+    // 球径按真机比例取小（填充率 ~25%）：33 个球在 r=0.25 时填充率 52%，
+    // 球堆互相卡死，风机吹不动——"真实动效"的前提是球装得下、混得开。
+    val redWorld = DrumWorld(drumRadius = 1f, ballRadius = 0.20f, omega = 0f).apply {
         addBalls(33)
         scatter(Random(7))
     }
-    val blueWorld = DrumWorld(drumRadius = 1f, ballRadius = 0.30f, omega = 5.6f).apply {
+    val blueWorld = DrumWorld(drumRadius = 1f, ballRadius = 0.24f, omega = 0f).apply {
         addBalls(16)
         scatter(Random(11))
     }
@@ -106,6 +109,21 @@ class MachineController {
     companion object {
         const val MIX_SECONDS = 1.9f
         const val EMIT_INTERVAL = 0.40f
+
+        /** 混合阶段的目标转速（rad/s）。真机是慢转 + 风机吹：
+         *  转速再高离心力就把球全按在壳上，风机吹不动（实测 2.4 时内区占用率只剩 3%）。 */
+        private const val MIX_OMEGA_RED = 1.5f
+        private const val MIX_OMEGA_BLUE = 1.7f
+
+        /** 出号阶段转速降到混合的 ~60%：真机出号时仍慢转、风仍吹。 */
+        private const val DRAW_OMEGA_RED = 0.9f
+        private const val DRAW_OMEGA_BLUE = 1.0f
+
+        /** 出号阶段风扇功率（略低于混合，球更乖一点好进管口）。 */
+        private const val DRAW_FAN = 0.85f
+
+        /** 到达当前段目标的判定半径：进入就切下一段（最后一段则落槽）。 */
+        private const val ARRIVE_RADIUS = 0.09f
     }
 
     fun start(redCount: Int, blueCount: Int) {
@@ -173,9 +191,13 @@ class MachineController {
     private fun clearBall(b: Ball) {
         b.escaping = false
         b.settled = false
+        b.escapeStage = 0
         b.attractX = 0f
         b.attractY = 0f
         b.attractZ = 0f
+        b.slotX = 0f
+        b.slotY = 0f
+        b.slotZ = 0f
         b.vx = 0f
         b.vy = 0f
         b.vz = 0f
@@ -184,9 +206,10 @@ class MachineController {
     /** 每帧推进（界面帧回调里调用，物理与状态机同步执行，不开协程）。 */
     fun advance(dt: Float) {
         val s = _state.value
+        updateMotor(s.phase)
         redWorld.step(dt)
         blueWorld.step(dt)
-        markArrived()
+        updateEscapes()
 
         when (s.phase) {
             MachineUiState.Phase.IDLE, MachineUiState.Phase.COMPLETE -> Unit
@@ -252,17 +275,81 @@ class MachineController {
         }
     }
 
-    /** 逃逸球接近目标点后标记静止，物理上真正停在展示槽里。 */
-    private fun markArrived() {
-        for (b in redBalls) if (b.escaping && !b.settled && nearTarget(b)) settle(b)
-        for (b in blueBalls) if (b.escaping && !b.settled && nearTarget(b)) settle(b)
+    /**
+     * 电机与风扇按相位驱动：红蓝两台机各自独立——
+     * 红球出号时红机仍在慢转慢吹，蓝机还在待机；蓝球出号时红机才停。
+     */
+    private fun updateMotor(phase: MachineUiState.Phase) {
+        // 用局部变量而不是数组：这个方法每帧都跑，不给热路径添分配
+        var redOmega = 0f
+        var redFan = 0f
+        var blueOmega = 0f
+        var blueFan = 0f
+        when (phase) {
+            MachineUiState.Phase.IDLE, MachineUiState.Phase.COMPLETE -> Unit
+
+            MachineUiState.Phase.RED_MIXING -> {
+                redOmega = MIX_OMEGA_RED
+                redFan = 1f
+            }
+
+            MachineUiState.Phase.RED_DRAWING -> {
+                redOmega = DRAW_OMEGA_RED
+                redFan = DRAW_FAN
+            }
+
+            MachineUiState.Phase.BLUE_MIXING -> {
+                blueOmega = MIX_OMEGA_BLUE
+                blueFan = 1f
+            }
+
+            MachineUiState.Phase.BLUE_DRAWING -> {
+                blueOmega = DRAW_OMEGA_BLUE
+                blueFan = DRAW_FAN
+            }
+        }
+        redWorld.omegaTarget = redOmega
+        redWorld.blowerTarget = redFan
+        blueWorld.omegaTarget = blueOmega
+        blueWorld.blowerTarget = blueFan
     }
 
-    private fun nearTarget(b: Ball): Boolean {
+    /**
+     * 出号三段路：管口 → 管出口 → 展示槽。
+     *
+     * 之前是一根弹簧直拽到槽位，球会从鼓壁上任意一点"穿玻璃"飞出去；
+     * 现在球先滑到鼓底管口、竖直穿过画出来的出号管，再横着滚向自己的槽，
+     * 路径与舞台上的管线对得上。
+     */
+    private fun updateEscapes() {
+        for (b in redBalls) updateEscape(b, MachineLayout.RED)
+        for (b in blueBalls) updateEscape(b, MachineLayout.BLUE)
+    }
+
+    private fun updateEscape(b: Ball, spec: DrumRenderSpec) {
+        if (!b.escaping || b.settled) return
         val dx = b.x - b.attractX
         val dy = b.y - b.attractY
         val dz = b.z - b.attractZ
-        return sqrt(dx * dx + dy * dy + dz * dz) < 0.06f
+        if (sqrt(dx * dx + dy * dy + dz * dz) > ARRIVE_RADIUS) return
+        when (b.escapeStage) {
+            0 -> {
+                val t = MachineLayout.chuteExitTarget(spec)
+                b.attractX = t[0]
+                b.attractY = t[1]
+                b.attractZ = t[2]
+                b.escapeStage = 1
+            }
+
+            1 -> {
+                b.attractX = b.slotX
+                b.attractY = b.slotY
+                b.attractZ = b.slotZ
+                b.escapeStage = 2
+            }
+
+            else -> settle(b)
+        }
     }
 
     private fun settle(b: Ball) {
@@ -273,28 +360,37 @@ class MachineController {
         b.vx = 0f
         b.vy = 0f
         b.vz = 0f
-        b.spinX = 0f
-        b.spinY = 0f
+        b.spinZ = 0f
     }
 
-    /** 第 index 个预选红球逃向该槽位（槽位坐标由 [MachineLayout] 统一给出）。 */
+    /** 第 index 个预选红球出发：先滑向鼓底管口，最终落点由 [MachineLayout] 给出。 */
     private fun emitNextRed(index: Int) {
         val number = pendingRed[index]
         val ball = redBalls[number - 1]
-        val t = MachineLayout.slotTarget(MachineLayout.RED, index)
-        ball.attractX = t[0]
-        ball.attractY = t[1]
-        ball.attractZ = t[2]
+        val outlet = MachineLayout.outletTarget(MachineLayout.RED)
+        val slot = MachineLayout.slotTarget(MachineLayout.RED, index)
+        ball.attractX = outlet[0]
+        ball.attractY = outlet[1]
+        ball.attractZ = outlet[2]
+        ball.slotX = slot[0]
+        ball.slotY = slot[1]
+        ball.slotZ = slot[2]
+        ball.escapeStage = 0
         ball.escaping = true
         _state.value = _state.value.copy(redEmitted = index + 1)
     }
 
     private fun emitBlue(number: Int, index: Int) {
         val ball = blueBalls[number - 1]
-        val t = MachineLayout.slotTarget(MachineLayout.BLUE, index)
-        ball.attractX = t[0]
-        ball.attractY = t[1]
-        ball.attractZ = t[2]
+        val outlet = MachineLayout.outletTarget(MachineLayout.BLUE)
+        val slot = MachineLayout.slotTarget(MachineLayout.BLUE, index)
+        ball.attractX = outlet[0]
+        ball.attractY = outlet[1]
+        ball.attractZ = outlet[2]
+        ball.slotX = slot[0]
+        ball.slotY = slot[1]
+        ball.slotZ = slot[2]
+        ball.escapeStage = 0
         ball.escaping = true
         _state.value = _state.value.copy(blueEmitted = index + 1)
     }

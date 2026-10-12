@@ -20,10 +20,10 @@ data class DrumRenderSpec(
 /** 摇号机的舞台布局。控制器与渲染层共用这一份配置。 */
 object MachineLayout {
 
-    /** 红鼓：33 球，出 6 个。 */
+    /** 红鼓：33 球，出 6 个。球径与 DrumWorld 的 ballRadius 保持一致。 */
     val RED = DrumRenderSpec(
         drumRadius = 1f,
-        ballScale = 0.25f,
+        ballScale = 0.20f,
         slotCount = 6,
         slotSpacing = 0.60f,
     )
@@ -31,9 +31,28 @@ object MachineLayout {
     /** 蓝鼓：16 球，最多出 4 个（复式模式下逐颗发射）。 */
     val BLUE = DrumRenderSpec(
         drumRadius = 1f,
-        ballScale = 0.30f,
+        ballScale = 0.24f,
         slotCount = 4,
         slotSpacing = 0.60f,
+    )
+
+    /**
+     * 鼓底管口（球心可达的内壁点）：出号第一段先滑到这里。
+     *
+     * 球心在内壁上的极限位置就是 `drumRadius - ballScale`，所以管口
+     * 天然与鼓底相切，球滑到这儿正好"对准"画出来的出号管。
+     */
+    fun outletTarget(spec: DrumRenderSpec): FloatArray = floatArrayOf(
+        0f,
+        -(spec.drumRadius - spec.ballScale),
+        0f,
+    )
+
+    /** 出号管出口：球竖直穿过管子后先到这里，再横向滑向展示槽。 */
+    fun chuteExitTarget(spec: DrumRenderSpec): FloatArray = floatArrayOf(
+        0f,
+        -(spec.drumRadius + spec.ballScale * 0.9f),
+        0f,
     )
 
     /**

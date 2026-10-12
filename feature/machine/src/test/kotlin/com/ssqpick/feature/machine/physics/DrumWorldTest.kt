@@ -157,6 +157,101 @@ class DrumWorldTest {
     }
 
     @Test
+    fun `电机从静止加速到目标转速`() {
+        val w = DrumWorld(drumRadius = 1f, ballRadius = 0.25f, omega = 0f)
+        w.addBalls(6)
+        w.scatter(Random(5))
+        w.omegaTarget = 2.8f
+        // 0.5 秒内应转起来（不是瞬间全速，但也不能磨蹭）
+        repeat(30) { w.step(1f / 60f) }
+        assertTrue("转速没上去：${w.omega}", w.omega > 2.0f)
+        repeat(600) { w.step(1f / 60f) }
+        assertEquals(2.8f, w.omega, 1e-3f)
+    }
+
+    @Test
+    fun `待机时球会静止下来`() {
+        // 电机停、风机关：球落下堆在鼓底后应归零，不留下永远微抖的球堆
+        val w = DrumWorld(drumRadius = 1f, ballRadius = 0.25f, omega = 0f)
+        w.addBalls(20)
+        w.scatter(Random(6))
+        repeat(600) { w.step(1f / 60f) }
+        val moving = w.balls.count { it.speed > 0.25f }
+        assertEquals("停下后不应还有球在动", 0, moving)
+    }
+
+    @Test
+    fun `鼓风机把球吹散到全鼓`() {
+        // 与控制器同一套参数：球径 0.20（填充率 ~26%）、慢转 1.5、风机全开。
+        // 指标用"内区占用率"（r < 0.55）：只靠离心+重力时球全贴在壳上，开风机后
+        // 应有两成左右的球混到鼓心区域。
+        fun innerFraction(fan: Float): Float {
+            val w = DrumWorld(drumRadius = 1f, ballRadius = 0.20f, omega = 0f)
+            w.addBalls(33)
+            w.scatter(Random(42))
+            w.omegaTarget = 1.5f
+            w.blowerTarget = fan
+            repeat(120) { w.step(1f / 60f) } // 电机与风扇进入稳态
+            var inner = 0
+            var n = 0
+            repeat(600) {
+                w.step(1f / 60f)
+                for (b in w.balls) {
+                    if (V3.len(b.x, b.y, b.z) < 0.55f) inner++
+                    n++
+                }
+            }
+            return inner.toFloat() / n
+        }
+        val withFan = innerFraction(1f)
+        val without = innerFraction(0f)
+        assertTrue("开风机后球应混进鼓心：内区占用率 $withFan（关风机 $without）", withFan > 0.08f)
+        assertTrue("关风机时球应基本贴壳（内区占用率 $without）", without < 0.05f)
+    }
+
+    @Test
+    fun `沿鼓底向右滚动的球顺时针自转`() {
+        // Compose 的 rotate 顺时针为正：向右滚 = 顺时针 = rollAngle 为正
+        val w = DrumWorld(drumRadius = 1f, ballRadius = 0.2f, omega = 0f, gravity = -2.2f)
+        w.addBalls(1)
+        val b = w.balls[0]
+        b.x = 0f
+        b.y = -(1f - 0.2f)
+        b.z = 0f
+        b.vx = 1.2f
+        b.vy = 0f
+        b.vz = 0f
+        repeat(20) { w.step(1f / 60f) }
+        assertTrue("向右滚应顺时针转，实际 ${b.rollAngle}", b.rollAngle > 0f)
+    }
+
+    @Test
+    fun `球间摩擦会磨掉相对切向速度`() {
+        // 慢接近 + 快切向：法向冲量小、碰撞瞬间两球几乎不错位，
+        // 测到的 vy 变化基本只来自摩擦（法向冲量最多带进 0.01 量级）。
+        val w = DrumWorld(drumRadius = 3f, ballRadius = 0.25f, omega = 0f, gravity = 0f)
+        w.addBalls(2)
+        val a = w.balls[0]
+        val b = w.balls[1]
+        a.x = 0f
+        a.y = 0f
+        a.z = 0f
+        a.vx = 0.3f
+        a.vy = 0.6f
+        a.vz = 0f
+        b.x = 0.49f
+        b.y = 0f
+        b.z = 0f
+        b.vx = -0.3f
+        b.vy = 0f
+        b.vz = 0f
+        val before = kotlin.math.abs(a.vy - b.vy)
+        repeat(10) { w.step(1f / 60f) }
+        val after = kotlin.math.abs(a.vy - b.vy)
+        assertTrue("摩擦应磨掉切向相对速度：$before -> $after", after < before - 0.03f)
+    }
+
+    @Test
     fun `穿透深度被记录且始终很小`() {
         val w = world()
         repeat(3_000) { w.step(1f / 60f) }
