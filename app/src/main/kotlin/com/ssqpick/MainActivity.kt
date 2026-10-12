@@ -4,6 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -38,6 +49,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.ssqpick.designsystem.sketch.SketchDivider
 import com.ssqpick.designsystem.sketch.SketchPalette
+import com.ssqpick.designsystem.theme.SsqMotion
 import com.ssqpick.designsystem.theme.SsqTheme
 import com.ssqpick.feature.check.CheckScreen
 import com.ssqpick.feature.check.CheckViewModel
@@ -128,6 +140,12 @@ private fun AppScaffold() {
             navController = navController,
             startDestination = TopTab.MACHINE.route,
             modifier = Modifier.padding(padding),
+            // 顶层 tab 切换：按序号方向做小幅横移 + 快速淡入淡出。
+            // 库默认只有整屏淡入淡出，切页"几乎没动"，底栏五个 tab 的左右关系读不出来。
+            enterTransition = { tabEnter() },
+            exitTransition = { tabExit() },
+            popEnterTransition = { tabEnter() },
+            popExitTransition = { tabExit() },
         ) {
             composable(TopTab.MACHINE.route) {
                 val vm: MachineViewModel = koinViewModel()
@@ -152,6 +170,44 @@ private fun AppScaffold() {
             }
         }
     }
+}
+
+/**
+ * 顶层 tab 的切换方向：目标序号 ≥ 来源序号往右（+1），否则往左（-1）。
+ * 底栏 tab 有固定顺序，横移方向与序号一致，切页才有"翻页"的空间感。
+ */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabDirection(): Int {
+    val from = TopTab.entries.firstOrNull { it.route == initialState.destination.route }?.ordinal ?: 0
+    val to = TopTab.entries.firstOrNull { it.route == targetState.destination.route }?.ordinal ?: 0
+    return if (to >= from) 1 else -1
+}
+
+/**
+ * 进入的页面：从方向侧滑入 + 快速淡入。
+ * 位移只给 1/8 屏宽——是"页面挪了一下"的暗示，不是整屏横推；
+ * 弹簧沿用 [SsqMotion]（阻尼 0.86，过冲极小，禁止 bounce）。
+ */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabEnter(): EnterTransition {
+    val d = tabDirection()
+    return slideInHorizontally(
+        animationSpec = spring(
+            dampingRatio = SsqMotion.SPRING_DAMPING,
+            stiffness = SsqMotion.SPRING_STIFFNESS,
+        ),
+        initialOffsetX = { d * it / 8 },
+    ) + fadeIn(tween(SsqMotion.QUICK_MS))
+}
+
+/** 退出的页面：向反方向滑出 + 快速淡出。 */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabExit(): ExitTransition {
+    val d = tabDirection()
+    return slideOutHorizontally(
+        animationSpec = spring(
+            dampingRatio = SsqMotion.SPRING_DAMPING,
+            stiffness = SsqMotion.SPRING_STIFFNESS,
+        ),
+        targetOffsetX = { -d * it / 8 },
+    ) + fadeOut(tween(SsqMotion.QUICK_MS))
 }
 
 /** 统一的应用头部：应用名 + 当前页标题 + 一句诚实的副标题。 */
@@ -179,11 +235,18 @@ private fun AppHeader(active: TopTab) {
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Spacer(Modifier.weight(1f))
-                Text(
-                    active.title,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = SketchPalette.InkSoft,
-                )
+                // 标题跟着页面一起换：快速淡换，避免页面在动、标题硬切
+                Crossfade(
+                    targetState = active.title,
+                    animationSpec = tween(SsqMotion.QUICK_MS),
+                    label = "header-title",
+                ) { title ->
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = SketchPalette.InkSoft,
+                    )
+                }
             }
             Spacer(Modifier.padding(top = 2.dp))
             Text(
