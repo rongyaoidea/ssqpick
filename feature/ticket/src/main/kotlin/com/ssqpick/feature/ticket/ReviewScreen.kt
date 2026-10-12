@@ -11,7 +11,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,7 +48,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssqpick.designsystem.component.NumberBall
@@ -64,6 +61,7 @@ import com.ssqpick.designsystem.sketch.SketchMiniButton
 import com.ssqpick.designsystem.sketch.SketchPalette
 import com.ssqpick.designsystem.sketch.SketchRangeMarker
 import com.ssqpick.designsystem.sketch.SketchSectionTitle
+import com.ssqpick.designsystem.sketch.SketchSheet
 import com.ssqpick.designsystem.sketch.sketchBox
 import com.ssqpick.designsystem.theme.SsqDimens
 import com.ssqpick.model.PrizeTier
@@ -535,42 +533,40 @@ private fun CalendarCard(
 
     openDay?.let { date ->
         val list = dayEntries[date].orEmpty()
-        Dialog(onDismissRequest = { openDay = null }) {
-            SketchCard(seed = "cal-day-dialog", tilt = 0f) {
+        SketchSheet(onDismiss = { openDay = null }) { dismiss ->
+            Text(
+                "%d月%d日 · %d 笔".format(date.monthNumber, date.dayOfMonth, list.size),
+                style = MaterialTheme.typography.titleMedium,
+                color = SketchPalette.Ink,
+            )
+            Spacer(Modifier.height(8.dp))
+            if (list.isEmpty()) {
                 Text(
-                    "%d月%d日 · %d 笔".format(date.monthNumber, date.dayOfMonth, list.size),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = SketchPalette.Ink,
+                    "这天没有记录购买。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SketchPalette.InkSoft,
                 )
-                Spacer(Modifier.height(8.dp))
-                if (list.isEmpty()) {
+            } else {
+                list.forEach { e ->
                     Text(
-                        "这天没有记录购买。",
+                        "号码 #${e.ticketId} · ${e.costYuan} 元 · " + when {
+                            e.pending -> "待开奖"
+                            e.tierLabel != null -> "${e.tierLabel}（第 ${e.drawCode} 期）"
+                            else -> "未中奖（第 ${e.drawCode} 期）"
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = SketchPalette.InkSoft,
+                        color = SketchPalette.Ink,
                     )
-                } else {
-                    list.forEach { e ->
-                        Text(
-                            "号码 #${e.ticketId} · ${e.costYuan} 元 · " + when {
-                                e.pending -> "待开奖"
-                                e.tierLabel != null -> "${e.tierLabel}（第 ${e.drawCode} 期）"
-                                else -> "未中奖（第 ${e.drawCode} 期）"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = SketchPalette.Ink,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                    }
+                    Spacer(Modifier.height(2.dp))
                 }
-                Spacer(Modifier.height(10.dp))
-                SketchMiniButton(
-                    label = "关闭",
-                    seed = "cal-day-close",
-                    onClick = { openDay = null },
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
+            Spacer(Modifier.height(10.dp))
+            SketchMiniButton(
+                label = "关闭",
+                seed = "cal-day-close",
+                onClick = dismiss,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

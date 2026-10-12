@@ -1,8 +1,6 @@
 package com.ssqpick.feature.ticket
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,10 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchMiniButton
 import com.ssqpick.designsystem.sketch.SketchPalette
+import com.ssqpick.designsystem.sketch.SketchSheet
 import com.ssqpick.designsystem.sketch.sketchBox
 import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.SmsCommand
@@ -129,9 +125,9 @@ internal fun MultiCopyBar(
     }
 }
 
-/** 指令设置弹层：倍数/期数 + 实时预览。默认 1 倍、不带期数。 */
+/** 指令设置抽屉：倍数/期数 + 实时预览。默认 1 倍、不带期数。 */
 @Composable
-internal fun SmsSettingsDialog(
+internal fun SmsSettingsSheet(
     drafts: List<TicketDraft>,
     multi: Boolean,
     onDismiss: () -> Unit,
@@ -146,71 +142,63 @@ internal fun SmsSettingsDialog(
             drafts.firstOrNull()?.let { SmsCommand.of(it, times, periods) }
         }
     }
-    Dialog(onDismissRequest = onDismiss) {
-        Box(
-            Modifier
-                .padding(horizontal = 28.dp)
-                .fillMaxWidth()
-                .imePadding()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {},
-                ),
+    SketchSheet(onDismiss = onDismiss) { dismiss ->
+        Text(
+            if (multi) "多注指令设置（${drafts.size} 注单式）" else "投注指令设置",
+            style = MaterialTheme.typography.titleMedium,
+            color = SketchPalette.Ink,
+        )
+        Spacer(Modifier.height(10.dp))
+        StepperRow(label = "倍数", value = times, range = 1..SmsCommand.MAX_TIMES) {
+            times = it
+        }
+        Spacer(Modifier.height(6.dp))
+        StepperRow(label = "期数", value = periods, range = 1..SmsCommand.MAX_PERIODS) {
+            periods = it
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "期数为 1 表示不带（单期）",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkFaint,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            command ?: "该票不支持短信指令",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.Ink,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "发送后将按指令金额实际扣款；需已开通电话投注并实名。",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkFaint,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SketchCard(seed = "sms-dialog", tilt = 0f) {
-                Text(
-                    if (multi) "多注指令设置（${drafts.size} 注单式）" else "投注指令设置",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = SketchPalette.Ink,
-                )
-                Spacer(Modifier.height(10.dp))
-                StepperRow(label = "倍数", value = times, range = 1..SmsCommand.MAX_TIMES) {
-                    times = it
-                }
-                Spacer(Modifier.height(6.dp))
-                StepperRow(label = "期数", value = periods, range = 1..SmsCommand.MAX_PERIODS) {
-                    periods = it
-                }
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "期数为 1 表示不带（单期）",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SketchPalette.InkFaint,
-                )
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    command ?: "该票不支持短信指令",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SketchPalette.Ink,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "发送后将按指令金额实际扣款；需已开通电话投注并实名。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SketchPalette.InkFaint,
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    SketchMiniButton(
-                        label = "取消",
-                        seed = "sms-cancel",
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                    )
-                    SketchMiniButton(
-                        label = "复制",
-                        seed = "sms-copy-ok",
-                        onClick = { command?.let(onCopy) },
-                        filled = true,
-                        enabled = command != null,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
+            SketchMiniButton(
+                label = "取消",
+                seed = "sms-cancel",
+                onClick = dismiss,
+                modifier = Modifier.weight(1f),
+            )
+            SketchMiniButton(
+                label = "复制",
+                seed = "sms-copy-ok",
+                onClick = {
+                    // 先复制再收起：抽屉的退场动画播完才真正关闭
+                    command?.let {
+                        onCopy(it)
+                        dismiss()
+                    }
+                },
+                filled = true,
+                enabled = command != null,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
