@@ -14,4 +14,7 @@ class TicketHistoryProvider(
     private val drawRepository: DrawRepository,
 ) {
     suspend fun history(draft: TicketDraft): List<Draw> = drawRepository.all()
+
+    /** 排除历史中奖组合要用全量开奖数据，和战绩查询同源。 */
+    suspend fun draws(): List<Draw> = drawRepository.all()
 }

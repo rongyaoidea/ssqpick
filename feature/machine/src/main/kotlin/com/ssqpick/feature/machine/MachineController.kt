@@ -8,6 +8,7 @@ import com.ssqpick.rules.TicketRules
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.random.Random
 
@@ -37,6 +38,9 @@ data class MachineUiState(
     val blueCount: Int = DrawLimits.BLUE_MIN,
     val redNumbers: List<Int> = emptyList(),
     val blueNumbers: List<Int> = emptyList(),
+    /** 结果条按最终升序位置展示：球落槽前对应位置是 null，落一颗亮一颗。 */
+    val redSlots: List<Int?> = emptyList(),
+    val blueSlots: List<Int?> = emptyList(),
     val redEmitted: Int = 0,
     val blueEmitted: Int = 0,
 ) {
@@ -105,6 +109,10 @@ class MachineController {
     private var emitCooldown = 0f
     private var pendingRed: List<Int> = emptyList()
     private var pendingBlue: List<Int> = emptyList()
+    private var redSlotOf: Map<Int, Int> = emptyMap()
+    private var blueSlotOf: Map<Int, Int> = emptyMap()
+    private var redSorted: List<Int> = emptyList()
+    private var blueSorted: List<Int> = emptyList()
 
     companion object {
         const val MIX_SECONDS = 1.9f
@@ -122,17 +130,37 @@ class MachineController {
         /** 出号阶段风扇功率（略低于混合，球更乖一点好进管口）。 */
         private const val DRAW_FAN = 0.85f
 
-        /** 到达当前段目标的判定半径：进入就切下一段（最后一段则落槽）。 */
-        private const val ARRIVE_RADIUS = 0.09f
+        /** 到达管口的判定半径：进入就切到自由落体。 */
+        private const val ARRIVE_RADIUS = 0.10f
+
+        /** 槽位对齐半径：小于它就算落稳（球半径 0.2，3% 足够贴合）。 */
+        private const val SLOT_SNAP = 0.035f
     }
 
-    fun start(redCount: Int, blueCount: Int) {
+    /**
+     * 开始摇号。[presetReds]/[presetBlues] 是已通过历史排除筛选的号码集合
+     * （升序或任意顺序均可）；为空时照常用 CSPRNG 现抽。
+     */
+    fun start(
+        redCount: Int,
+        blueCount: Int,
+        presetReds: List<Int>? = null,
+        presetBlues: List<Int>? = null,
+    ) {
         if (_state.value.isRunning) return
         // 防御：任何入口都先夹一次合法范围（界面滑条已经夹过，这里兜底）
         val (red, blue) = DrawLimits.clampRed(redCount, blueCount)
         // 出号顺序用随机序（逐颗摇出），结果行展示时再排序
-        pendingRed = NumberGenerator.sampleOrdered(TicketRules.RED_TOTAL, red)
-        pendingBlue = NumberGenerator.sampleOrdered(TicketRules.BLUE_TOTAL, blue)
+        pendingRed = sanitizePreset(presetReds, red, TicketRules.RED_TOTAL)
+            ?.let { NumberGenerator.sampleFrom(it, it.size) }
+            ?: NumberGenerator.sampleOrdered(TicketRules.RED_TOTAL, red)
+        pendingBlue = sanitizePreset(presetBlues, blue, TicketRules.BLUE_TOTAL)
+            ?.let { NumberGenerator.sampleFrom(it, it.size) }
+            ?: NumberGenerator.sampleOrdered(TicketRules.BLUE_TOTAL, blue)
+        redSorted = pendingRed.sorted()
+        blueSorted = pendingBlue.sorted()
+        redSlotOf = redSorted.withIndex().associate { it.value to it.index }
+        blueSlotOf = blueSorted.withIndex().associate { it.value to it.index }
         emitIndex = 0
         emitCooldown = 0f
         phaseTimer = 0f
@@ -141,7 +169,16 @@ class MachineController {
             phase = MachineUiState.Phase.RED_MIXING,
             redCount = red,
             blueCount = blue,
+            redSlots = List(red) { null },
+            blueSlots = List(blue) { null },
         )
+    }
+
+    /** 预置号码必须数量吻合、不重复、在合法范围内；否则返回 null 走随机。 */
+    private fun sanitizePreset(preset: List<Int>?, expected: Int, total: Int): List<Int>? {
+        if (preset == null || preset.size != expected || preset.toSet().size != expected) return null
+        if (preset.any { it !in 1..total }) return null
+        return preset
     }
 
     /** 只改数量：回到待机、清空结果，不开始摇。运行中忽略。 */
@@ -156,16 +193,23 @@ class MachineController {
             phase = MachineUiState.Phase.IDLE,
             redCount = red,
             blueCount = blue,
+            redSlots = List(red) { null },
+            blueSlots = List(blue) { null },
         )
     }
 
     /**
-     * 出号进度 (已出, 总数)。混合阶段返回 null——此时"在转"的刻度本身就是反馈，
-     * 再加一条进度线只是多余的视觉噪音。
+     * 出号进度 (已落槽, 总数)。混合阶段返回 null——此时"在转"的刻度本身就是反馈，
+     * 再加一条进度线只是多余的视觉噪音。按落槽而不是按发射计数：
+     * 球还在管里飞的时候，进度条不应该先跑满。
      */
     fun progress(): Pair<Int, Int>? = when (_state.value.phase) {
-        MachineUiState.Phase.RED_DRAWING -> _state.value.redEmitted to _state.value.redCount
-        MachineUiState.Phase.BLUE_DRAWING -> _state.value.blueEmitted to _state.value.blueCount
+        MachineUiState.Phase.RED_DRAWING ->
+            _state.value.redSlots.count { it != null } to _state.value.redCount
+
+        MachineUiState.Phase.BLUE_DRAWING ->
+            _state.value.blueSlots.count { it != null } to _state.value.blueCount
+
         else -> null
     }
 
@@ -177,6 +221,8 @@ class MachineController {
             phase = MachineUiState.Phase.IDLE,
             redCount = _state.value.redCount,
             blueCount = _state.value.blueCount,
+            redSlots = List(_state.value.redCount) { null },
+            blueSlots = List(_state.value.blueCount) { null },
         )
     }
 
@@ -198,6 +244,8 @@ class MachineController {
         b.slotX = 0f
         b.slotY = 0f
         b.slotZ = 0f
+        b.slotIndex = -1
+        b.trayIndex = -1
         b.vx = 0f
         b.vy = 0f
         b.vz = 0f
@@ -205,12 +253,14 @@ class MachineController {
 
     /** 每帧推进（界面帧回调里调用，物理与状态机同步执行，不开协程）。 */
     fun advance(dt: Float) {
-        val s = _state.value
-        updateMotor(s.phase)
+        updateMotor(_state.value.phase)
         redWorld.step(dt)
         blueWorld.step(dt)
         updateEscapes()
 
+        // updateEscapes 会写 redSlots/blueSlots，所以这里必须重新取一次状态：
+        // 用进入函数时的旧 s.copy 会把刚落槽的号码覆盖掉。
+        val s = _state.value
         when (s.phase) {
             MachineUiState.Phase.IDLE, MachineUiState.Phase.COMPLETE -> Unit
 
@@ -218,7 +268,7 @@ class MachineController {
                 phaseTimer += dt
                 if (phaseTimer >= MIX_SECONDS) {
                     phaseTimer = 0f
-                    _state.value = s.copy(phase = MachineUiState.Phase.RED_DRAWING)
+                    _state.value = _state.value.copy(phase = MachineUiState.Phase.RED_DRAWING)
                 }
             }
 
@@ -226,14 +276,16 @@ class MachineController {
                 emitCooldown += dt
                 if (emitCooldown >= EMIT_INTERVAL && emitIndex < pendingRed.size) {
                     emitCooldown = 0f
+                    emitNextRed(emitIndex)
                     emitIndex++
-                    emitNextRed(emitIndex - 1)
                 }
-                if (emitIndex >= pendingRed.size) {
+                // 最后一颗发射出去还不够：要等它真的穿管、落槽，红阶段才算结束。
+                if (emitIndex >= pendingRed.size && pendingRed.all { redBalls[it - 1].settled }) {
                     _state.value = _state.value.copy(
                         phase = MachineUiState.Phase.BLUE_MIXING,
                         // 展示用结果排序（出号顺序是随机的，见 pendingRed）
-                        redNumbers = pendingRed.sorted(),
+                        redNumbers = redSorted,
+                        redSlots = redSorted,
                         redEmitted = pendingRed.size,
                     )
                     phaseTimer = 0f
@@ -267,7 +319,8 @@ class MachineController {
                 ) {
                     _state.value = _state.value.copy(
                         phase = MachineUiState.Phase.COMPLETE,
-                        blueNumbers = pendingBlue.sorted(),
+                        blueNumbers = blueSorted,
+                        blueSlots = blueSorted,
                         blueEmitted = pendingBlue.size,
                     )
                 }
@@ -322,59 +375,99 @@ class MachineController {
      * 路径与舞台上的管线对得上。
      */
     private fun updateEscapes() {
-        for (b in redBalls) updateEscape(b, MachineLayout.RED)
-        for (b in blueBalls) updateEscape(b, MachineLayout.BLUE)
+        for (b in redBalls) updateEscape(b, MachineLayout.RED, isBlue = false)
+        for (b in blueBalls) updateEscape(b, MachineLayout.BLUE, isBlue = true)
     }
 
-    private fun updateEscape(b: Ball, spec: DrumRenderSpec) {
+    private fun updateEscape(b: Ball, spec: DrumRenderSpec, isBlue: Boolean) {
         if (!b.escaping || b.settled) return
-        val dx = b.x - b.attractX
-        val dy = b.y - b.attractY
-        val dz = b.z - b.attractZ
-        if (sqrt(dx * dx + dy * dy + dz * dz) > ARRIVE_RADIUS) return
         when (b.escapeStage) {
             0 -> {
-                val t = MachineLayout.chuteExitTarget(spec)
-                b.attractX = t[0]
-                b.attractY = t[1]
-                b.attractZ = t[2]
+                val dx = b.x - b.attractX
+                val dy = b.y - b.attractY
+                val dz = b.z - b.attractZ
+                if (sqrt(dx * dx + dy * dy + dz * dz) > ARRIVE_RADIUS) return
+                // 对准管口：横向速度清零，从这里开始只受重力
+                b.x = b.attractX
+                b.y = b.attractY
+                b.z = b.attractZ
+                val exit = MachineLayout.chuteExitTarget(spec)
+                b.attractX = exit[0]
+                b.attractY = exit[1]
+                b.attractZ = exit[2]
+                b.vx = 0f
+                b.vy = 0f
+                b.vz = 0f
                 b.escapeStage = 1
             }
 
             1 -> {
+                // 自由落体越过槽面高度，进入沿槽滚动的最后一段
+                if (b.y > b.attractY) return
+                b.y = b.attractY
+                b.vy = 0f
                 b.attractX = b.slotX
                 b.attractY = b.slotY
                 b.attractZ = b.slotZ
                 b.escapeStage = 2
+                // 沿着承接槽滚向自己的位置：给一个朝槽位的初速度
+                b.vx = ((b.slotX - b.x) * 2f).coerceIn(-2.2f, 2.2f)
             }
 
-            else -> settle(b)
+            else -> {
+                val dx = b.x - b.slotX
+                val dy = b.y - b.slotY
+                if (abs(dx) <= SLOT_SNAP && abs(dy) <= SLOT_SNAP) settle(b, isBlue)
+            }
         }
     }
 
-    private fun settle(b: Ball) {
+    /** 球停进槽里：把它写进结果条对应位置，号码是这一刻才亮起的。 */
+    private fun settle(b: Ball, isBlue: Boolean) {
         b.settled = true
-        b.x = b.attractX
-        b.y = b.attractY
-        b.z = b.attractZ
+        b.x = b.slotX
+        b.y = b.slotY
+        b.z = b.slotZ
         b.vx = 0f
         b.vy = 0f
         b.vz = 0f
         b.spinZ = 0f
+
+        val index = b.slotIndex
+        if (index < 0) return
+        val current = _state.value
+        val slots = if (isBlue) current.blueSlots else current.redSlots
+        if (index >= slots.size) return
+        val updated = slots.toMutableList()
+        updated[index] = b.number
+        _state.value = if (isBlue) {
+            current.copy(blueSlots = updated)
+        } else {
+            current.copy(redSlots = updated)
+        }
     }
 
-    /** 第 index 个预选红球出发：先滑向鼓底管口，最终落点由 [MachineLayout] 给出。 */
+    /** 预选红球出发：先被吸到鼓底管口，再自由落体、滚进自己的升序槽位。 */
     private fun emitNextRed(index: Int) {
         val number = pendingRed[index]
         val ball = redBalls[number - 1]
+        val slotIndex = redSlotOf[number] ?: index
+        val trayIndex = if (slotIndex < MachineLayout.RED.slotCount) slotIndex else -1
+        val visible = minOf(pendingRed.size, MachineLayout.RED.slotCount)
         val outlet = MachineLayout.outletTarget(MachineLayout.RED)
-        val slot = MachineLayout.slotTarget(MachineLayout.RED, index)
+        val slot = if (trayIndex >= 0) {
+            MachineLayout.slotTarget(MachineLayout.RED, trayIndex, visible)
+        } else {
+            MachineLayout.binTarget(MachineLayout.RED)
+        }
         ball.attractX = outlet[0]
         ball.attractY = outlet[1]
         ball.attractZ = outlet[2]
         ball.slotX = slot[0]
         ball.slotY = slot[1]
         ball.slotZ = slot[2]
+        ball.slotIndex = slotIndex
+        ball.trayIndex = trayIndex
         ball.escapeStage = 0
         ball.escaping = true
         _state.value = _state.value.copy(redEmitted = index + 1)
@@ -382,14 +475,23 @@ class MachineController {
 
     private fun emitBlue(number: Int, index: Int) {
         val ball = blueBalls[number - 1]
+        val slotIndex = blueSlotOf[number] ?: index
+        val trayIndex = if (slotIndex < MachineLayout.BLUE.slotCount) slotIndex else -1
+        val visible = minOf(pendingBlue.size, MachineLayout.BLUE.slotCount)
         val outlet = MachineLayout.outletTarget(MachineLayout.BLUE)
-        val slot = MachineLayout.slotTarget(MachineLayout.BLUE, index)
+        val slot = if (trayIndex >= 0) {
+            MachineLayout.slotTarget(MachineLayout.BLUE, trayIndex, visible)
+        } else {
+            MachineLayout.binTarget(MachineLayout.BLUE)
+        }
         ball.attractX = outlet[0]
         ball.attractY = outlet[1]
         ball.attractZ = outlet[2]
         ball.slotX = slot[0]
         ball.slotY = slot[1]
         ball.slotZ = slot[2]
+        ball.slotIndex = slotIndex
+        ball.trayIndex = trayIndex
         ball.escapeStage = 0
         ball.escaping = true
         _state.value = _state.value.copy(blueEmitted = index + 1)

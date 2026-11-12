@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -48,6 +49,7 @@ import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.sketch.sketchBox
 import com.ssqpick.designsystem.theme.SsqDimens
 import com.ssqpick.model.Bet
+import com.ssqpick.model.PrizeTier
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.OddsInfo
 import kotlin.math.roundToInt
@@ -82,7 +84,7 @@ fun MachineScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SketchSectionTitle("摇号机")
-                SketchChip(label = m.phaseLabel, seed = m.phaseLabel)
+                SketchChip(label = if (ui.filterBusy) "筛选中…" else m.phaseLabel, seed = m.phaseLabel)
             }
 
             Spacer(Modifier.height(12.dp))
@@ -101,6 +103,13 @@ fun MachineScreen(
             Spacer(Modifier.height(12.dp))
 
             ResultStrip(m)
+
+            Spacer(Modifier.height(14.dp))
+            ExcludePanel(
+                ui = ui,
+                enabled = !m.isRunning && !ui.filterBusy,
+                onToggle = viewModel::toggleExclusion,
+            )
 
             Spacer(Modifier.height(16.dp))
             ActionBar(
@@ -129,7 +138,7 @@ fun MachineScreen(
         Spacer(Modifier.height(14.dp))
         ModeSelector(
             machine = m,
-            enabled = !m.isRunning,
+            enabled = !m.isRunning && !ui.filterBusy,
             onSelect = viewModel::selectMode,
             onRedCount = viewModel::setRedCount,
             onBlueCount = viewModel::setBlueCount,
@@ -154,9 +163,9 @@ private fun ResultStrip(m: MachineUiState) {
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         BallSlots(
-            numbers = m.redNumbers,
-            isBlue = false,
+            slots = m.redSlots,
             placeholderCount = m.redCount,
+            isBlue = false,
         )
         Text(
             "+",
@@ -164,9 +173,9 @@ private fun ResultStrip(m: MachineUiState) {
             color = SketchPalette.Ink,
         )
         BallSlots(
-            numbers = m.blueNumbers,
-            isBlue = true,
+            slots = m.blueSlots,
             placeholderCount = m.blueCount,
+            isBlue = true,
         )
     }
     Spacer(Modifier.height(8.dp))
@@ -179,15 +188,15 @@ private fun ResultStrip(m: MachineUiState) {
     )
 }
 
-/** 一组球槽：已出画球、未出画空圈（沿用 BallRow 的"位置比隐藏清楚"）。 */
+/** 一组球槽：已落槽画球、未落槽画空圈（沿用 BallRow 的"位置比隐藏清楚"）。 */
 @Composable
 private fun FlowRowScope.BallSlots(
-    numbers: List<Int>,
-    isBlue: Boolean,
+    slots: List<Int?>,
     placeholderCount: Int,
+    isBlue: Boolean,
 ) {
     repeat(placeholderCount) { index ->
-        val n = numbers.getOrNull(index)
+        val n = slots.getOrNull(index)
         if (n == null) {
             Box(
                 Modifier
@@ -345,8 +354,9 @@ private fun ActionBar(
 
             else -> {
                 SketchButton(
-                    label = "开始摇号",
+                    label = if (ui.filterBusy) "正在筛选号码…" else "开始摇号",
                     onClick = onStart,
+                    enabled = !ui.filterBusy,
                     seed = "start",
                     tilt = -0.5f,
                 )
@@ -428,6 +438,75 @@ private fun presetOf(m: MachineUiState): DrawMode? = DrawMode.entries.firstOrNul
 
 /** 结果条上的一行说明：命中预设用预设名，否则标"自定义"。 */
 private fun countLabel(m: MachineUiState): String = presetOf(m)?.label ?: "自定义 ${m.redCount} 红 ${m.blueCount} 蓝"
+
+/**
+ * 排除历史中奖组合。
+ *
+ * 只对"整组号码"生效：如果摇出的组合在历史开奖里中过所选奖级，就重摇。
+ * 不存在"把中过奖的单个号码剔掉"这种选项——每个红球都在一等奖里出现过，
+ * 那样会把球池清空。
+ */
+@Composable
+private fun ExcludePanel(
+    ui: DrawUiState,
+    enabled: Boolean,
+    onToggle: (PrizeTier) -> Unit,
+) {
+    Column {
+        SketchSectionTitle("排除历史中奖")
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "摇出的号码若在历史开奖中中过所选奖级，会自动重摇；只避开已开出的组合，不提高中奖概率。",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            EXCLUDABLE_TIERS.forEach { tier ->
+                val selected = tier in ui.excludedTiers
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .rotate(if (selected) -0.8f else 0.6f)
+                        .sketchBox(
+                            seed = "exclude-${tier.name}",
+                            filled = selected,
+                            enabled = enabled,
+                        )
+                        .selectable(
+                            selected = selected,
+                            enabled = enabled,
+                            role = Role.Checkbox,
+                            onClick = { onToggle(tier) },
+                        )
+                        .padding(horizontal = 4.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        tier.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (selected) SketchPalette.Paper else SketchPalette.InkSoft,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+        if (ui.filterBusy) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "正在历史开奖里筛选，大复式可能需要几秒…",
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.InkSoft,
+            )
+        }
+        ui.filterMessage?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = SketchPalette.RedInk)
+        }
+    }
+}
+
+private val EXCLUDABLE_TIERS = listOf(PrizeTier.FIRST, PrizeTier.SECOND, PrizeTier.THIRD)
 
 /** 数量滑条：红蓝各一条，值一定是整数，拖动时联动夹取在 ViewModel 里做。 */
 @Composable

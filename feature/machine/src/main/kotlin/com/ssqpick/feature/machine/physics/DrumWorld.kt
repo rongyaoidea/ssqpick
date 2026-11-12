@@ -40,6 +40,10 @@ class Ball(
     var escapeStage: Int = 0,
     /** 该球是否已就位于出口展示槽。 */
     var settled: Boolean = false,
+    /** 最终展示槽下标（按号码升序的位置，不是出号顺序）。 */
+    var slotIndex: Int = -1,
+    /** 承接槽里的可见位置；-1 表示这球超出槽位，落进下方收集口后不再绘制。 */
+    var trayIndex: Int = -1,
 ) {
     val speed get() = V3.len(vx, vy, vz)
 }
@@ -130,6 +134,8 @@ class DrumWorld(
             b.escaping = false
             b.settled = false
             b.escapeStage = 0
+            b.slotIndex = -1
+            b.trayIndex = -1
         }
     }
 
@@ -182,12 +188,41 @@ class DrumWorld(
                 continue
             }
             if (b.escaping) {
-                // 牵引阶段：线性弹簧拖向目标点，同时保留阻尼
-                val k = 26f
-                val d = 5.5f
-                b.vx += (b.attractX - b.x) * k * h - b.vx * d * h
-                b.vy += (b.attractY - b.y) * k * h - b.vy * d * h
-                b.vz += (b.attractZ - b.z) * k * h - b.vz * d * h
+                // 出号分三段演：抽吸到管口 → 管里自由落体 → 沿承接槽滚到槽位。
+                // 早先三段都用同一根弹簧直拽，球看起来是被"瞬移"到槽里的；
+                // 现在中段只受重力，落速由物理决定，观感才是掉下来。
+                when (b.escapeStage) {
+                    0 -> {
+                        // 鼓内抽吸：弹簧 + 重力。球会先随重力往下掉，再被管口吸住。
+                        val k = 14f
+                        val d = 4.6f
+                        b.vx += ((b.attractX - b.x) * k - b.vx * d) * h
+                        b.vy += ((b.attractY - b.y) * k - b.vy * d) * h
+                        b.vz += ((b.attractZ - b.z) * k - b.vz * d) * h
+                        b.vy += gravity * 0.5f * h
+                    }
+
+                    1 -> {
+                        // 出号管：真正的自由落体，横向只做轻微回正
+                        b.vy += gravity * 1.8f * h
+                        b.vx += ((b.attractX - b.x) * 6f - b.vx * 2.5f) * h
+                        b.vz += ((b.attractZ - b.z) * 6f - b.vz * 2.5f) * h
+                        b.spinZ = 0f
+                    }
+
+                    else -> {
+                        // 承接槽：贴着槽面滚向自己的位置
+                        val k = 9f
+                        val d = 4.8f
+                        b.vx += ((b.attractX - b.x) * k - b.vx * d) * h
+                        b.vy = 0f
+                        b.y = b.attractY
+                        b.vz = 0f
+                        b.z = b.attractZ
+                        // 纯滚动：向右滚 = 顺时针 = rollAngle 增大
+                        b.spinZ = -b.vx / ballRadius
+                    }
+                }
             } else {
                 var ax = w2 * b.x - 2f * w * b.vz
                 var ay = gravity

@@ -3,17 +3,23 @@ package com.ssqpick.feature.machine
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ssqpick.model.Bet
+import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
+import com.ssqpick.rules.HistoryFilter
 import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.targetLabel
 import com.ssqpick.store.TicketRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** 摇号界面的 UI 状态。 */
 data class DrawUiState(
@@ -29,6 +35,12 @@ data class DrawUiState(
     val totalBets: Long = 0L,
     /** 已勾选的注。 */
     val selectedBets: Set<Bet> = emptySet(),
+    /** 摇号前要排除的历史奖级（空集合 = 不过滤）。 */
+    val excludedTiers: Set<PrizeTier> = emptySet(),
+    /** 正在后台做历史筛选：此时开始按钮禁用，避免连点重复起摇。 */
+    val filterBusy: Boolean = false,
+    /** 筛选失败/无数据时的提示。 */
+    val filterMessage: String? = null,
 )
 
 /**
@@ -41,6 +53,8 @@ class MachineViewModel(
     private val ticketRepository: TicketRepository,
     private val historyProvider: TicketHistoryProvider,
     val controller: MachineController = MachineController(),
+    /** 历史筛选在后台算：2000 期 × 若干次尝试不应占住主线程。 */
+    private val filterDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(DrawUiState())
@@ -55,9 +69,69 @@ class MachineViewModel(
         }
     }
 
+    /**
+     * 开始摇号。勾了"排除历史中奖"时先把历史数据取回来，在后台做拒样，
+     * 取到满足条件的号码再交给控制器演出；否则同步起摇，不多一次调度。
+     */
     fun start() {
+        val current = _ui.value
+        if (current.machine.isRunning || current.filterBusy) return
         closePicker()
-        controller.start(_ui.value.machine.redCount, _ui.value.machine.blueCount)
+        val state = _ui.value
+        if (state.excludedTiers.isEmpty()) {
+            controller.start(state.machine.redCount, state.machine.blueCount)
+            return
+        }
+
+        val redCount = state.machine.redCount
+        val blueCount = state.machine.blueCount
+        val tiers = state.excludedTiers
+        _ui.value = state.copy(filterBusy = true, filterMessage = null)
+        viewModelScope.launch {
+            try {
+                val draws = historyProvider.draws()
+                if (draws.isEmpty()) {
+                    _ui.value = _ui.value.copy(
+                        filterBusy = false,
+                        filterMessage = "还没有开奖数据，先在“数据”页同步，才能排除历史中奖组合。",
+                    )
+                    return@launch
+                }
+                val sample = withContext(filterDispatcher) {
+                    HistoryFilter.sample(redCount, blueCount, draws, tiers)
+                }
+                if (sample == null) {
+                    _ui.value = _ui.value.copy(
+                        filterBusy = false,
+                        filterMessage = "找不到同时满足这些排除项的号码，请少选一档或缩小复式规模。",
+                    )
+                } else {
+                    controller.start(redCount, blueCount, sample.reds, sample.blues)
+                    _ui.value = _ui.value.copy(filterBusy = false)
+                }
+            } catch (c: CancellationException) {
+                // 页面销毁时取消原样抛出，但 busy 标记要归位，避免复用 VM 时卡死
+                _ui.value = _ui.value.copy(filterBusy = false)
+                throw c
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(
+                    filterBusy = false,
+                    filterMessage = "筛选失败：${e.message ?: e::class.simpleName ?: "未知错误"}",
+                )
+            }
+        }
+    }
+
+    /** 勾选/取消一档排除项；摇号或筛选进行中忽略。 */
+    fun toggleExclusion(tier: PrizeTier) {
+        val state = _ui.value
+        if (state.machine.isRunning || state.filterBusy) return
+        val next = if (tier in state.excludedTiers) {
+            state.excludedTiers - tier
+        } else {
+            state.excludedTiers + tier
+        }
+        _ui.value = state.copy(excludedTiers = next, filterMessage = null)
     }
 
     fun reset() {
@@ -69,6 +143,8 @@ class MachineViewModel(
             pickerOpen = false,
             pickedBets = emptyList(),
             selectedBets = emptySet(),
+            filterBusy = false,
+            filterMessage = null,
         )
     }
 
@@ -99,6 +175,7 @@ class MachineViewModel(
             pickerOpen = false,
             pickedBets = emptyList(),
             selectedBets = emptySet(),
+            filterMessage = null,
         )
     }
 

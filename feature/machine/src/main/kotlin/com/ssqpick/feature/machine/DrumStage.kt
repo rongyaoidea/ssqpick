@@ -33,7 +33,6 @@ import com.ssqpick.feature.machine.physics.Ball
 import com.ssqpick.feature.machine.physics.DrumWorld
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
  * 2D 摇号舞台。
@@ -95,17 +94,21 @@ fun DrumStage(
 
         val w = size.width
         val h = size.height
-        // 两台鼓并排
-        val drumR = minOf(h * 0.34f, w * 0.19f)
-        val redCenter = Offset(w * 0.29f, h * 0.44f)
-        val blueCenter = Offset(w * 0.71f, h * 0.44f)
+        // 两台鼓并排。中心略向外移，给鼓底的承接槽留出互不重叠的宽度；
+        // 竖直方向留出底部一条进度线的高度，落槽球不会压到进度线。
+        val drumR = minOf(h * 0.33f, w * 0.19f)
+        val redCenter = Offset(w * 0.26f, h * 0.40f)
+        val blueCenter = Offset(w * 0.74f, h * 0.40f)
+        val state = controller.state.value
 
         drawDrum(
-            controller.redWorld, MachineLayout.RED, redCenter, drumR, RED_BALL, ink, rim, well, measurer,
+            controller.redWorld, MachineLayout.RED, minOf(state.redCount, MachineLayout.RED.slotCount),
+            redCenter, drumR, RED_BALL, ink, rim, well, measurer,
             redCache, SketchGeometry.seedOf("drum-red"),
         )
         drawDrum(
-            controller.blueWorld, MachineLayout.BLUE, blueCenter, drumR, BLUE_BALL, ink, rim, well, measurer,
+            controller.blueWorld, MachineLayout.BLUE, minOf(state.blueCount, MachineLayout.BLUE.slotCount),
+            blueCenter, drumR, BLUE_BALL, ink, rim, well, measurer,
             blueCache, SketchGeometry.seedOf("drum-blue"),
         )
 
@@ -134,6 +137,7 @@ fun DrumStage(
 private fun DrawScope.drawDrum(
     world: DrumWorld,
     spec: DrumRenderSpec,
+    slotCount: Int,
     center: Offset,
     radius: Float,
     ballColor: Color,
@@ -166,8 +170,9 @@ private fun DrawScope.drawDrum(
 
     for (k in 0 until balls.size) {
         val b = balls[order[k]]
-        // 已出号落槽的球交给下方结果行展示，这里不再画
-        if (b.settled) continue
+        // 落槽的球继续画：它是"掉下来"这件事的证据，不再淡出消失。
+        // 超出承接槽的大复式球落到收集口，落稳后不再占画面。
+        if (b.settled && b.trayIndex < 0) continue
         drawBall(b, center, radius, ballR, ballColor, measurer)
     }
 
@@ -198,29 +203,28 @@ private fun DrawScope.drawDrum(
         drawCircle(color = rim.copy(alpha = 0.5f), radius = radius * 0.032f, center = Offset(px, py))
     }
 
-    // 出号管：鼓底一小段手绘管线，画到物理管出口（MachineLayout.chuteExitTarget）的高度。
-    // 出号的球从这里竖直穿过，不再"穿玻璃"飞出去。
+    // 出号管：鼓底一小段手绘管线，一直画到承接槽面。
+    // 球从管口竖直落下来，路径与画出来的管子对得上，不再"穿玻璃"飞出去。
     val rimY = center.y + radius * spec.drumRadius
-    val tubeEndY = center.y + radius * (spec.drumRadius + spec.ballScale * 0.9f)
+    val trayY = center.y + radius * (spec.drumRadius + spec.ballScale * 2.15f)
     val tubeTop = ballR * 1.5f
     val tubeBottom = ballR * 1.05f
     drawLine(
         color = rim,
         start = Offset(center.x - tubeTop, rimY),
-        end = Offset(center.x - tubeBottom, tubeEndY),
+        end = Offset(center.x - tubeBottom, trayY),
         strokeWidth = 1.6f,
         cap = StrokeCap.Round,
     )
     drawLine(
         color = rim,
         start = Offset(center.x + tubeTop, rimY),
-        end = Offset(center.x + tubeBottom, tubeEndY),
+        end = Offset(center.x + tubeBottom, trayY),
         strokeWidth = 1.6f,
         cap = StrokeCap.Round,
     )
-    // 承接轨：展示槽那一排下方一条淡线，球沿它滑到位
-    val trayY = center.y + radius * (spec.drumRadius + spec.ballScale * 1.2f)
-    val trayHalf = radius * ((spec.slotCount - 1) / 2f * spec.slotSpacing * 0.55f + 0.14f)
+    // 承接槽：落槽的球停在这条线上，球底与槽面贴合。
+    val trayHalf = radius * MachineLayout.trayHalf(spec, slotCount)
     drawLine(
         color = rim.copy(alpha = 0.55f),
         start = Offset(center.x - trayHalf, trayY),
@@ -245,20 +249,10 @@ private fun DrawScope.drawBall(
     val depth = 1f + b.z * 0.12f
     val r = ballRadius * depth
 
-    // 出号中的球滑向展示槽并淡出，读起来像"落进出球槽"。
-    // 淡出按**最终落点**算：分段牵引时若按当前段目标算，球会在管口就淡没。
-    var alpha = 1f
-    if (b.escaping) {
-        val dx = b.x - b.slotX
-        val dy = b.y - b.slotY
-        val dz = b.z - b.slotZ
-        alpha = (sqrt(dx * dx + dy * dy + dz * dz) * 2.4f).coerceIn(0f, 1f)
-    }
-
-    drawCircle(color = color.copy(alpha = alpha), radius = r, center = Offset(sx, sy))
+    drawCircle(color = color, radius = r, center = Offset(sx, sy))
     // 内侧一发丝环，让球不是一块纯色片
     drawCircle(
-        color = Color.White.copy(alpha = 0.26f * alpha),
+        color = Color.White.copy(alpha = 0.26f),
         radius = r * 0.8f,
         center = Offset(sx, sy),
         style = Stroke(width = r * 0.1f),
