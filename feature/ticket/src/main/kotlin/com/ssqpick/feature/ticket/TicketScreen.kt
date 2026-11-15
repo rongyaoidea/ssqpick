@@ -121,6 +121,16 @@ fun TicketScreen(
                     onSync = viewModel::syncDraws,
                 )
                 Spacer(Modifier.height(14.dp))
+                StrategyCard(
+                    strategy = ui.strategy,
+                    drawCount = ui.drawCount,
+                    onKind = viewModel::setStrategyKind,
+                    onLookback = viewModel::setStrategyLookback,
+                    onRedCount = viewModel::setStrategyRedCount,
+                    onBlueCount = viewModel::setStrategyBlueCount,
+                    onGenerate = viewModel::generateStrategy,
+                )
+                Spacer(Modifier.height(14.dp))
                 DraftCard(
                     ui = ui,
                     stats = stats,

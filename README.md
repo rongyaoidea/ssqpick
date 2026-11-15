@@ -21,6 +21,7 @@ ssqpick/
 │   │                   NumberGenerator（CSPRNG 选号）
 │   │                   HistoryScanner（历史战绩）
 │   │                   sim/Simulation（理论随机/历史重放、预算、分位、回撤）
+│   │                   strategy/StrategyPicker（历史统计打分选号）
 │   │                   OddsInfo（概率说明）
 │   ├── store/         Android 库 —— 数据层
 │   │   ├── network/   ktor 客户端，官方开奖公告接口
@@ -73,6 +74,12 @@ ssqpick/
 不另写一套对奖。实验是“如果一直这样买”的分布，不是下一期预测；
 “最好路径”通常来自一次头奖，不能当成策略可复制。
 
+**7. 策略选号只做历史打分。** 贝叶斯后验、指数衰减、遗漏回归、马尔可夫转移、
+综合排序五种方法，用户选红/蓝数量和回看窗口后生成推荐并填入草稿。
+`docs/STRATEGY_STUDY.md` 的 2019–2026 walk-forward 研究没有找到稳定最优窗口：
+30/50/100/200/500/1000 期与全历史的差异基本在噪声内，因此默认 100 期只是产品选择，
+**不宣称能提高中奖概率**。
+
 ---
 
 ## 开奖数据
@@ -103,6 +110,7 @@ ssqpick/
 - [AGENTS.md](AGENTS.md) —— 构建命令与环境注意事项
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 模块职责与数据流
 - [docs/SIM_LAB.md](docs/SIM_LAB.md) —— 模拟实验室口径、指标与规模上限
+- [docs/STRATEGY_STUDY.md](docs/STRATEGY_STUDY.md) —— 策略选号的窗口研究（walk-forward）
 - [UI_UX.md](UI_UX.md) —— 界面结构与设计说明
 
 ## 本地构建

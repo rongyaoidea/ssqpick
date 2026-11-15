@@ -32,6 +32,10 @@ import com.ssqpick.rules.ledgerOf
 import com.ssqpick.rules.monthlyLedger
 import com.ssqpick.rules.numberCoverage
 import com.ssqpick.rules.outcomeOf
+import com.ssqpick.rules.strategy.StrategyConfig
+import com.ssqpick.rules.strategy.StrategyKind
+import com.ssqpick.rules.strategy.StrategyPick
+import com.ssqpick.rules.strategy.StrategyPicker
 import com.ssqpick.rules.summaryOf
 import com.ssqpick.rules.targetLabel
 import com.ssqpick.store.DrawRepository
@@ -51,6 +55,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -96,6 +101,20 @@ enum class BacktestRange(val label: String, val draws: Int?) {
     LAST_30("近30期", 30),
 }
 
+/** 策略选号：参数与最近一次推荐。 */
+data class StrategyUiState(
+    val kind: StrategyKind = StrategyKind.BAYES,
+    val lookback: Int? = StrategyPicker.DEFAULT_LOOKBACK,
+    val redCount: Int = 6,
+    val blueCount: Int = 1,
+    val busy: Boolean = false,
+    val pick: StrategyPick? = null,
+    val message: String? = null,
+) {
+    val betCount: Long get() = TicketRules.binom(redCount.toLong(), 6) * blueCount
+    val priceYuan: Long get() = betCount * TicketRules.PRICE_YUAN
+}
+
 /** 手选号码界面。 */
 data class TicketUiState(
     val draft: TicketDraft = TicketDraft(),
@@ -114,6 +133,8 @@ data class TicketUiState(
     val drawCount: Long = 0L,
     val newestDraw: Draw? = null,
     val backtestRange: BacktestRange = BacktestRange.ALL,
+    /** 策略选号参数与推荐。 */
+    val strategy: StrategyUiState = StrategyUiState(),
 ) {
     val validation by lazy { TicketRules.validate(draft) }
     val isValid: Boolean get() = validation.isValid
@@ -459,7 +480,12 @@ class TicketViewModel(
     }
 
     fun clear() {
-        _ui.value = _ui.value.copy(draft = TicketDraft(), autoReds = emptySet(), autoBlues = emptySet())
+        _ui.value = _ui.value.copy(
+            draft = TicketDraft(),
+            autoReds = emptySet(),
+            autoBlues = emptySet(),
+            strategy = _ui.value.strategy.copy(pick = null, message = null),
+        )
         draftStorage.save(_ui.value.draft)
     }
 
@@ -488,8 +514,110 @@ class TicketViewModel(
             ),
             autoReds = reds,
             autoBlues = blues,
+            strategy = state.strategy.copy(pick = null, message = null),
         )
         draftStorage.save(_ui.value.draft)
+    }
+
+    // ---------------------------------------------------------------- 策略选号
+
+    fun setStrategyKind(kind: StrategyKind) {
+        if (_ui.value.strategy.busy) return
+        _ui.value = _ui.value.copy(
+            strategy = _ui.value.strategy.copy(kind = kind, pick = null, message = null),
+        )
+    }
+
+    fun setStrategyLookback(lookback: Int?) {
+        if (_ui.value.strategy.busy) return
+        _ui.value = _ui.value.copy(
+            strategy = _ui.value.strategy.copy(lookback = lookback, pick = null, message = null),
+        )
+    }
+
+    fun setStrategyRedCount(value: Int) {
+        if (_ui.value.strategy.busy) return
+        val red = value.coerceIn(TicketRules.RED_PICK, TicketRules.MAX_RED_COMPOUND)
+        val maxBlue = maxBlueFor(red)
+        val current = _ui.value.strategy
+        val blue = current.blueCount.coerceIn(1, maxBlue)
+        _ui.value = _ui.value.copy(
+            strategy = current.copy(redCount = red, blueCount = blue, pick = null, message = null),
+        )
+    }
+
+    fun setStrategyBlueCount(value: Int) {
+        if (_ui.value.strategy.busy) return
+        val blue = value.coerceIn(1, TicketRules.BLUE_TOTAL)
+        val maxRed = maxRedFor(blue)
+        val current = _ui.value.strategy
+        val red = current.redCount.coerceIn(TicketRules.RED_PICK, maxRed)
+        _ui.value = _ui.value.copy(
+            strategy = current.copy(redCount = red, blueCount = blue, pick = null, message = null),
+        )
+    }
+
+    /**
+     * 用最近一次开奖之前的窗口打分，生成推荐并把草稿替换成它。
+     * 不写死“最优窗口”：研究显示窗口差异在噪声内，默认 100 只是产品选择。
+     */
+    fun generateStrategy() {
+        val state = _ui.value
+        val cfg = state.strategy
+        if (cfg.busy) return
+        val history = draws.replayCache.firstOrNull().orEmpty().asReversed()
+        if (history.isEmpty()) {
+            _ui.value = state.copy(
+                strategy = cfg.copy(message = "先同步开奖数据，策略选号才有历史可算。"),
+            )
+            return
+        }
+        val config = StrategyConfig(
+            kind = cfg.kind,
+            redCount = cfg.redCount,
+            blueCount = cfg.blueCount,
+            lookback = cfg.lookback,
+        )
+        _ui.value = state.copy(strategy = cfg.copy(busy = true, message = null))
+        viewModelScope.launch {
+            try {
+                val pick = withContext(computeDispatcher) {
+                    StrategyPicker.recommend(config, history)
+                }
+                val draft = TicketDraft(
+                    redPicked = pick.reds.toSet(),
+                    bluePicked = pick.blues.toSet(),
+                )
+                val latest = _ui.value
+                _ui.value = latest.copy(
+                    draft = draft,
+                    autoReds = pick.reds.toSet(),
+                    autoBlues = pick.blues.toSet(),
+                    actionMessage = "已按${pick.kind.label}填入 ${pick.reds.size} 红 ${pick.blues.size} 蓝",
+                    strategy = latest.strategy.copy(
+                        busy = false,
+                        pick = pick,
+                        message = "已填入选号草稿，可手改或直接保存。",
+                    ),
+                )
+                draftStorage.save(draft)
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(
+                    strategy = _ui.value.strategy.copy(
+                        busy = false,
+                        message = e.message ?: "生成失败，请重试",
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun maxBlueFor(red: Int): Int = (1..TicketRules.BLUE_TOTAL).last {
+        TicketRules.binom(red.toLong(), TicketRules.RED_PICK.toLong()) * it <= TicketRules.EXPAND_LIMIT
+    }
+
+    private fun maxRedFor(blue: Int): Int = (TicketRules.RED_PICK..TicketRules.MAX_RED_COMPOUND).last {
+        TicketRules.binom(it.toLong(), TicketRules.RED_PICK.toLong()) * blue <= TicketRules.EXPAND_LIMIT
     }
 
     fun save(label: String? = null) {
@@ -502,6 +630,7 @@ class TicketViewModel(
                 draft = TicketDraft(),
                 autoReds = emptySet(),
                 autoBlues = emptySet(),
+                strategy = _ui.value.strategy.copy(pick = null, message = null),
                 actionMessage = "已保存（#$id）· 对应 $period",
             )
             draftStorage.save(_ui.value.draft)

@@ -22,6 +22,9 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -109,6 +112,57 @@ class TicketViewModelTest {
         }
 
         override suspend fun syncFromOfficial(): SyncResult = SyncResult.AlreadyUpToDate
+    }
+
+    @Test
+    fun `策略数量夹取在注数上限内`() {
+        val vm = TicketViewModel(FakeTicketRepo(), FakeDrawRepo(), FakePurchaseRepo(), FakeDraftStorage())
+        vm.setStrategyRedCount(20)
+        assertEquals(20, vm.ui.value.strategy.redCount)
+        assertEquals(1, vm.ui.value.strategy.blueCount)
+        vm.setStrategyBlueCount(16)
+        assertEquals(14, vm.ui.value.strategy.redCount)
+        assertEquals(16, vm.ui.value.strategy.blueCount)
+        assertTrue(vm.ui.value.strategy.betCount <= TicketRules.EXPAND_LIMIT)
+    }
+
+    @Test
+    fun `策略生成会填入选号草稿并可保存`() = runTest {
+        val draws = (0 until 60).map { i ->
+            val start = (i * 6) % 33 + 1
+            val reds = (0 until 6).map { ((start - 1 + it) % 33) + 1 }
+            Draw(
+                code = "S$i",
+                date = LocalDate.parse("2026-01-01").plus(i, DateTimeUnit.DAY),
+                red = reds,
+                blue = (i % 16) + 1,
+            )
+        }
+        val repo = ReactiveDrawRepo()
+        repo.state.value = draws
+        val vm = TicketViewModel(
+            FakeTicketRepo(),
+            repo,
+            FakePurchaseRepo(),
+            FakeDraftStorage(),
+            computeDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        vm.setStrategyRedCount(7)
+        vm.setStrategyBlueCount(2)
+        vm.generateStrategy()
+        advanceUntilIdle()
+
+        val state = vm.ui.value
+        val pick = requireNotNull(state.strategy.pick) { "应生成推荐" }
+        assertEquals(7, state.draft.redPicked.size)
+        assertEquals(2, state.draft.bluePicked.size)
+        assertEquals(pick.reds.toSet(), state.autoReds)
+        assertEquals(pick.blues.toSet(), state.autoBlues)
+
+        vm.save()
+        advanceUntilIdle()
+        assertTrue(vm.ui.value.actionMessage?.contains("已保存") == true)
     }
 
     @Test
