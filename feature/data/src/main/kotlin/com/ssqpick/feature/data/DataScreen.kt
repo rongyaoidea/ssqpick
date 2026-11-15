@@ -41,7 +41,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssqpick.designsystem.component.NumberBall
-import com.ssqpick.designsystem.sketch.SketchBarRow
 import com.ssqpick.designsystem.sketch.SketchButton
 import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchChip
@@ -53,10 +52,10 @@ import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.theme.SsqDimens
 import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
+import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.CoOccurrenceReport
 import com.ssqpick.rules.DrawSchedule
 import com.ssqpick.rules.FollowReport
-import com.ssqpick.rules.MonteCarloReport
 import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.PairStat
 import com.ssqpick.rules.PeriodMatch
@@ -69,6 +68,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
+import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * 数据页：开奖日程、和值走势、冷热参考、开奖形态、模拟实验室。
@@ -78,19 +78,21 @@ import kotlinx.datetime.toLocalDateTime
 @Composable
 fun DataScreen(
     viewModel: DataViewModel,
+    currentDraft: () -> TicketDraft? = { null },
     modifier: Modifier = Modifier,
 ) {
     val newest by viewModel.newest.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val shape by viewModel.shape.collectAsStateWithLifecycle()
     val trend by viewModel.trend.collectAsStateWithLifecycle()
-    val sim by viewModel.sim.collectAsStateWithLifecycle()
-    val simming by viewModel.simming.collectAsStateWithLifecycle()
-    val drawList by viewModel.drawList.collectAsStateWithLifecycle()
-    val notifyOn by viewModel.notifyOn.collectAsStateWithLifecycle()
     val cooc by viewModel.coOccurrence.collectAsStateWithLifecycle()
     val follow by viewModel.follow.collectAsStateWithLifecycle()
     val followTarget by viewModel.followTarget.collectAsStateWithLifecycle()
+    val simLab: SimLabViewModel = koinViewModel()
+    val labUi by simLab.ui.collectAsStateWithLifecycle()
+    var labOpen by rememberSaveable { mutableStateOf(false) }
+    val drawList by viewModel.drawList.collectAsStateWithLifecycle()
+    val notifyOn by viewModel.notifyOn.collectAsStateWithLifecycle()
 
     // 开奖通知是订阅制：先把权限和系统开关问清楚，再写订阅状态。
     // 旧写法是先 toggle 再申请权限——用户拒绝后开关停在"已开启"，实际永远收不到。
@@ -144,6 +146,16 @@ fun DataScreen(
     }
 
     var expandedCode by rememberSaveable { mutableStateOf<String?>(null) }
+
+    if (labOpen) {
+        SimLabScreen(
+            viewModel = simLab,
+            currentDraft = currentDraft,
+            onClose = { labOpen = false },
+            modifier = modifier,
+        )
+        return
+    }
 
     LazyColumn(
         modifier = modifier
@@ -200,9 +212,11 @@ fun DataScreen(
         item {
             Column(Modifier.padding(horizontal = 14.dp)) {
                 SimCard(
-                    sim = sim,
-                    running = simming,
-                    onRerun = { viewModel.runSimulation() },
+                    ui = labUi,
+                    onOpen = {
+                        simLab.setDraft(currentDraft())
+                        labOpen = true
+                    },
                 )
                 Spacer(Modifier.height(14.dp))
                 SketchCard(seed = "data-draws-head", tilt = 0.25f) {
@@ -211,7 +225,7 @@ fun DataScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SketchSectionTitle("往期开奖")
+                        SketchSectionTitle("往期开奖", modifier = Modifier.weight(1f))
                         SketchChip(label = "${drawList.size} 期", seed = "draws-count", fill = null)
                     }
                     Spacer(Modifier.height(4.dp))
@@ -377,7 +391,7 @@ private fun NextDrawCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SketchSectionTitle("下期开奖")
+            SketchSectionTitle("下期开奖", modifier = Modifier.weight(1f))
             SketchChip(label = "周二/四/日", seed = "next-days", fill = null)
         }
         Spacer(Modifier.height(8.dp))
@@ -606,79 +620,48 @@ private fun ShapeCard(shape: ShapeStats?) {
     }
 }
 
-/** 模拟实验室：随机买 N 期 × M 次，展示回报率如何收敛到负期望。 */
+/** 模拟实验室入口：完整实验在 [SimLabScreen]。 */
 @Composable
-private fun SimCard(
-    sim: MonteCarloReport?,
-    running: Boolean,
-    onRerun: () -> Unit,
-) {
+private fun SimCard(ui: SimLabUiState, onOpen: () -> Unit) {
     SketchCard(seed = "data-sim", tilt = -0.2f) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SketchSectionTitle("模拟实验室")
-            sim?.let {
-                SketchChip(label = "${it.drawsPerPath} 期 × ${it.paths} 次", seed = "sim-size")
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        if (sim == null) {
-            Text(
-                "正在计算…",
-                style = MaterialTheme.typography.bodyMedium,
-                color = SketchPalette.InkSoft,
+            SketchSectionTitle("模拟实验室", modifier = Modifier.weight(1f))
+            SketchChip(
+                label = "${ui.result?.spec?.paths ?: ui.paths} 次 × " +
+                    "${ui.result?.spec?.drawsPerPath ?: ui.drawsPerPath} 期",
+                seed = "sim-size",
             )
-            return@SketchCard
         }
+        Spacer(Modifier.height(8.dp))
         Text(
-            "每期随机买 1 注，连买 ${sim.drawsPerPath} 期，重复 ${sim.paths} 次。" +
-                "（每期重新随机与守号在分布上完全等价。）",
+            "理论随机或历史重放，测每期机选 / 我的号码；看收益分布、回撤和预算耗尽概率。",
             style = MaterialTheme.typography.bodySmall,
             color = SketchPalette.InkSoft,
         )
         Spacer(Modifier.height(8.dp))
-        SketchBarRow(
-            label = "盈利路径占比",
-            fraction = sim.profitableShare.toFloat(),
-            valueText = "%.1f%%".format(sim.profitableShare * 100),
-            seed = "sim-profit",
-        )
-        Spacer(Modifier.height(8.dp))
-        SketchMetaRow(label = "中位回报率", value = "%.0f%%".format(sim.medianRoi * 100))
-        SketchMetaRow(
-            label = "最好 / 最差路径",
-            value = "%.0f%% / %.0f%%".format(sim.bestRoi * 100, sim.worstRoi * 100),
-        )
-        SketchMetaRow(label = "全部投入", value = "%,d 元".format(sim.totalCostYuan))
-        SketchMetaRow(
-            label = "全部奖金",
-            value = "%,d 元".format(sim.totalPrizeYuan),
-            valueColor = if (sim.totalPrizeYuan >= sim.totalCostYuan) SketchPalette.Ink else SketchPalette.RedInk,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            PrizeTier.entries.sortedByDescending { it.rank }
-                .joinToString(" · ") { "${it.label} ${sim.tierHits[it] ?: 0}" },
+        ui.result?.let { r ->
+            SketchMetaRow("上次中位回报", "%.0f%%".format(r.roi.p50 * 100))
+            SketchMetaRow("上次盈利路径", "%.1f%%".format(r.profitableShare * 100))
+            SketchMetaRow(
+                "上次净收益",
+                (if (r.netYuan > 0) "+" else "") + "%,d 元".format(r.netYuan),
+                valueColor = if (r.netYuan >= 0) SketchPalette.Ink else SketchPalette.RedInk,
+            )
+        } ?: Text(
+            "还没跑过实验。",
             style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.Ink,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "一二等奖按 500 万 / 15 万估算（浮动奖）。长期回报率为负是数学。",
-            style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.InkSoft,
+            color = SketchPalette.InkFaint,
         )
         Spacer(Modifier.height(10.dp))
         SketchButton(
-            label = if (running) "计算中…" else "再模拟一次",
-            onClick = onRerun,
-            enabled = !running,
-            filled = false,
-            seed = "sim-rerun",
-            tilt = 0.4f,
+            label = "进入实验室",
+            onClick = onOpen,
+            seed = "sim-open",
+            tilt = -0.3f,
         )
     }
 }
@@ -692,7 +675,7 @@ private fun CoOccurrenceCard(report: CoOccurrenceReport?) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SketchSectionTitle("同出与相克")
+            SketchSectionTitle("同出与相克", modifier = Modifier.weight(1f))
             report?.let { SketchChip(label = "全库 ${it.draws} 期", seed = "cooc-draws", fill = null) }
         }
         Spacer(Modifier.height(8.dp))

@@ -17,8 +17,10 @@ ssqpick/
 │   ├── model/         纯 Kotlin JVM 库，无 Android 依赖 —— 全部规则与可测逻辑
 │   │   ├── model/     Draw / PrizeTier / TicketDraft / Ticket / Bet
 │   │   └── rules/     TicketRules（校验·注数·复式展开·对奖）
+│   │                   TicketMasks（票面位掩码，模拟/热循环复用）
 │   │                   NumberGenerator（CSPRNG 选号）
 │   │                   HistoryScanner（历史战绩）
+│   │                   sim/Simulation（理论随机/历史重放、预算、分位、回撤）
 │   │                   OddsInfo（概率说明）
 │   ├── store/         Android 库 —— 数据层
 │   │   ├── network/   ktor 客户端，官方开奖公告接口
@@ -32,13 +34,14 @@ ssqpick/
     │   ├── DrumStage  Canvas 绘制：双鼓 + 深度排序的球 + 结果条
     │   └── MachineController / MachineLayout / MachineScreen
     ├── ticket/       手选号码 + 已保存号码管理
+    ├── data/         开奖数据、统计与模拟实验室
     └── check/        对奖与奖金计算
 ```
 
 ### 关键设计取舍
 
 **1. 领域层零 Android 依赖。** `:core:model` 是纯 JVM 模块，注数计算、奖级判定、
-对奖逻辑全部可在 JVM 上直接单测——这也是 27 项单元测试能覆盖"复式/胆拖对奖"的原因。
+对奖逻辑全部可在 JVM 上直接单测——这也是复式/胆拖对奖、模拟引擎能逐项覆盖的原因。
 
 **2. 对奖用组合计数，不展开注。** 一张 10 红 4 蓝的复式有 `C(10,6)×4 = 3,360` 注，
 20 红 16 蓝更是数十万注。逐注判定会让全历史扫描变成数亿次循环。
@@ -64,6 +67,11 @@ ssqpick/
 承接槽滚动，球落稳后才在结果条亮出号码。摇号前可勾选排除历史一/二/三等奖组合，
 它只是把样本空间条件到"没中过这些奖级"的子集，**不提高单注中奖概率**；
 没有同步开奖数据或大复式下无解时会明确提示。
+
+**6. 模拟实验室用同一套规则做风险沙盘。** 理论随机 / 历史重放、每期机选 / 我的复式、
+预算耗尽、收益分位、最大回撤、奖级命中 vs 理论都走 `TicketMasks` + `TicketRules`，
+不另写一套对奖。实验是“如果一直这样买”的分布，不是下一期预测；
+“最好路径”通常来自一次头奖，不能当成策略可复制。
 
 ---
 
@@ -94,6 +102,7 @@ ssqpick/
 
 - [AGENTS.md](AGENTS.md) —— 构建命令与环境注意事项
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 模块职责与数据流
+- [docs/SIM_LAB.md](docs/SIM_LAB.md) —— 模拟实验室口径、指标与规模上限
 - [UI_UX.md](UI_UX.md) —— 界面结构与设计说明
 
 ## 本地构建

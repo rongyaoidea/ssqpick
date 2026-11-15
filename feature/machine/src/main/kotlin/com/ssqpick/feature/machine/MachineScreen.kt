@@ -83,7 +83,7 @@ fun MachineScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                SketchSectionTitle("摇号机")
+                SketchSectionTitle("摇号机", modifier = Modifier.weight(1f))
                 SketchChip(label = if (ui.filterBusy) "筛选中…" else m.phaseLabel, seed = m.phaseLabel)
             }
 

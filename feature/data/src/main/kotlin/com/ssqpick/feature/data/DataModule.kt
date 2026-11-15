@@ -5,4 +5,5 @@ import org.koin.dsl.module
 
 val featureDataModule = module {
     viewModel { DataViewModel(drawRepository = get(), settingsStore = get()) }
+    viewModel { SimLabViewModel(drawRepository = get()) }
 }

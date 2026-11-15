@@ -166,7 +166,10 @@ private fun AppScaffold() {
             }
             composable(TopTab.DATA.route) {
                 val vm: DataViewModel = koinViewModel()
-                DataScreen(viewModel = vm)
+                DataScreen(
+                    viewModel = vm,
+                    currentDraft = { ticketViewModel.ui.value.draft },
+                )
             }
         }
     }

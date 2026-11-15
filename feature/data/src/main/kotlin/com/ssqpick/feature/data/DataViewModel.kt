@@ -5,14 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.ssqpick.model.Draw
 import com.ssqpick.rules.CoOccurrenceReport
 import com.ssqpick.rules.FollowReport
-import com.ssqpick.rules.MonteCarloReport
 import com.ssqpick.rules.NumberStats
 import com.ssqpick.rules.ShapeStats
 import com.ssqpick.rules.coOccurrence
 import com.ssqpick.rules.computeShape
 import com.ssqpick.rules.computeStats
 import com.ssqpick.rules.followersOf
-import com.ssqpick.rules.simulateMonteCarlo
 import com.ssqpick.store.DrawRepository
 import com.ssqpick.store.SettingsStorage
 import kotlinx.coroutines.CoroutineDispatcher
@@ -27,8 +25,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** 历史跟随的目标：红球或蓝球里的某个号。 */
 data class FollowTarget(val number: Int = 1, val isBlue: Boolean = false)
@@ -121,33 +117,7 @@ class DataViewModel(
         .map { trendOf(it, TREND_WINDOW) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    private val _sim = MutableStateFlow<MonteCarloReport?>(null)
-    val sim: StateFlow<MonteCarloReport?> = _sim.asStateFlow()
-
-    private val _simming = MutableStateFlow(false)
-    val simming: StateFlow<Boolean> = _simming.asStateFlow()
-
-    init {
-        // 首次用固定种子：结果可复现，"再模拟一次"才换种子
-        runSimulation(seed = FIXED_SEED)
-    }
-
-    fun runSimulation(seed: Long = System.nanoTime()) {
-        if (_simming.value) return
-        _simming.value = true
-        viewModelScope.launch {
-            val report = withContext(computeDispatcher) {
-                simulateMonteCarlo(paths = PATHS, drawsPerPath = DRAWS_PER_PATH, seed = seed)
-            }
-            _sim.value = report
-            _simming.value = false
-        }
-    }
-
     companion object {
-        const val PATHS = 200
-        const val DRAWS_PER_PATH = 1000
         private const val TREND_WINDOW = 100
-        private const val FIXED_SEED = 20261010L
     }
 }

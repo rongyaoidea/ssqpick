@@ -207,7 +207,7 @@ private fun DraftCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SketchSectionTitle(draft.kind.label)
+            SketchSectionTitle(draft.kind.label, modifier = Modifier.weight(1f))
             SketchChip(
                 label = "${draft.betCount} 注 / ${draft.priceYuan} 元",
                 seed = "ticket-bet-${draft.betCount}",
@@ -440,7 +440,7 @@ private fun FingerprintStrip(fp: DraftFingerprint?) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SketchSectionTitle("选号指纹")
+            SketchSectionTitle("选号指纹", modifier = Modifier.weight(1f))
             Text(
                 "跟着这组号走",
                 style = MaterialTheme.typography.labelSmall,
@@ -501,7 +501,7 @@ private fun BacktestCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SketchSectionTitle("历史回测")
+            SketchSectionTitle("历史回测", modifier = Modifier.weight(1f))
             SketchMiniButton(
                 label = if (expanded) "收起" else "展开",
                 seed = "bt-toggle",

@@ -192,8 +192,16 @@ object TicketRules {
      */
     fun prizeBreakdown(draft: TicketDraft, draw: Draw): Map<PrizeTier, Long> {
         if (firstError(draft) != null) return emptyMap()
-        val (blueHit, blueTotal) = blueMatchCounts(draft, draw)
-        return prizeBreakdownOf(redMatchCounts(draft, draw), blueHit, blueTotal)
+        return prizeBreakdown(draft.toMasks(), redMaskOf(draw.red), draw.blue)
+    }
+
+    /**
+     * 位掩码版本：给模拟器每期调用，避免反复构造 [Draw] 与 Set。
+     * 调用方负责保证掩码来自合法票面（[TicketMasks.of] / [TicketMasks.plain]）。
+     */
+    fun prizeBreakdown(masks: TicketMasks, drawRedMask: Int, drawBlue: Int): Map<PrizeTier, Long> {
+        val (blueHit, blueTotal) = blueMatchCounts(masks, drawBlue)
+        return prizeBreakdownOf(redMatchCounts(masks, drawRedMask), blueHit, blueTotal)
     }
 
     /**
@@ -216,56 +224,95 @@ object TicketRules {
     }
 
     /** 红球命中数 → 注数。 */
-    fun redMatchCounts(draft: TicketDraft, draw: Draw): Map<Int, Long> {
-        val pool = draft.redPool
-        val drawSet = draw.red.toSet()
-        val dP = pool.count { it in drawSet }.toLong()
-        val bold = draft.redBold
+    fun redMatchCounts(draft: TicketDraft, draw: Draw): Map<Int, Long> = redMatchCounts(draft.toMasks(), redMaskOf(draw.red))
+
+    /** 位掩码版本：只依赖红球命中位，给模拟热循环复用。 */
+    fun redMatchCounts(masks: TicketMasks, drawRedMask: Int): Map<Int, Long> {
         val out = HashMap<Int, Long>()
-        if (bold.isEmpty()) {
-            val n = pool.size.toLong()
-            for (k in 0..RED_PICK) {
-                val c = binom(dP, k.toLong()) * binom(n - dP, (RED_PICK - k).toLong())
-                if (c > 0) out[k] = c
-            }
-        } else {
-            val b = bold.size.toLong()
-            val dB = bold.count { it in drawSet }.toLong()
-            val dT = dP - dB
-            val picked = draft.redPicked.size.toLong()
-            for (k in 0..RED_PICK) {
-                val j = k - dB
-                if (j < 0 || j > RED_PICK - b || (RED_PICK - b) - j < 0 ||
-                    (RED_PICK - b) - j > picked - dT
-                ) {
-                    continue
-                }
-                val c = binom(dT, j) * binom(picked - dT, (RED_PICK - b) - j)
-                if (c > 0) out[k] = c
-            }
+        forEachRedCount(masks, drawRedMask) { k, count ->
+            if (count > 0) out[k] = count
         }
         return out
     }
 
+    /**
+     * 把一张票在本期的各奖级注数**累加**到 [out]（调用方负责清零）。
+     *
+     * 模拟器每期都要算一次奖级，返回 Map 会产生大量短命对象；这个入口
+     * 让调用方复用一个 LongArray，口径仍与 [prizeBreakdownOf] 完全一致。
+     */
+    fun accumulateTierCounts(masks: TicketMasks, drawRedMask: Int, drawBlue: Int, out: LongArray) {
+        require(out.size >= PrizeTier.entries.size) { "out 至少需要 ${PrizeTier.entries.size} 个槽位" }
+        val (blueHit, blueTotal) = blueMatchCounts(masks, drawBlue)
+        val blueMiss = blueTotal - blueHit
+        if (blueHit < 0 || blueMiss < 0) return
+        forEachRedCount(masks, drawRedMask) { k, count ->
+            if (count <= 0) return@forEachRedCount
+            tierFor(k, true)?.let { out[it.ordinal] += count * blueHit }
+            tierFor(k, false)?.let { out[it.ordinal] += count * blueMiss }
+        }
+    }
+
+    /** 遍历"命中 k 个红球的注数"，不构造 Map。 */
+    private inline fun forEachRedCount(
+        masks: TicketMasks,
+        drawRedMask: Int,
+        action: (k: Int, count: Long) -> Unit,
+    ) {
+        val dP = Integer.bitCount(masks.redPoolMask and drawRedMask).toLong()
+        if (masks.redBoldSize == 0) {
+            val n = masks.redPoolSize.toLong()
+            for (k in 0..RED_PICK) {
+                action(k, binom(dP, k.toLong()) * binom(n - dP, (RED_PICK - k).toLong()))
+            }
+            return
+        }
+
+        val dB = Integer.bitCount(masks.redBoldMask and drawRedMask).toLong()
+        val dT = dP - dB
+        val b = masks.redBoldSize.toLong()
+        val picked = masks.redPickedSize.toLong()
+        for (k in 0..RED_PICK) {
+            val j = k - dB
+            if (j < 0 || j > RED_PICK - b || (RED_PICK - b) - j < 0 ||
+                (RED_PICK - b) - j > picked - dT
+            ) {
+                continue
+            }
+            action(k, binom(dT, j) * binom(picked - dT, (RED_PICK - b) - j))
+        }
+    }
+
     /** 蓝球：命中注数 与 总注数。 */
-    fun blueMatchCounts(draft: TicketDraft, draw: Draw): Pair<Long, Long> {
-        val total = draft.bluePicked.size.toLong()
-        if (draft.blueBold.isEmpty()) {
-            val hit = if (draw.blue in draft.bluePicked) 1L else 0L
+    fun blueMatchCounts(draft: TicketDraft, draw: Draw): Pair<Long, Long> = blueMatchCounts(draft.toMasks(), draw.blue)
+
+    /** 位掩码版本：只依赖开奖蓝球。 */
+    fun blueMatchCounts(masks: TicketMasks, drawBlue: Int): Pair<Long, Long> {
+        val total = masks.blueCount.toLong()
+        val drawBit = 1 shl (drawBlue - 1)
+        if (masks.blueBold == 0) {
+            val hit = if (masks.blueMask and drawBit != 0) 1L else 0L
             return hit to total
         }
-        val boldBlue = draft.blueBold.first()
         val hit = when {
-            boldBlue == draw.blue -> total
-            draw.blue in draft.bluePicked -> 1L
+            masks.blueBold == drawBlue -> total
+            masks.blueMask and drawBit != 0 -> 1L
             else -> 0L
         }
         return hit to total
     }
 
     /** 单注奖金（元）。浮动奖取开奖公告实付额，缺失时回落到固定奖。 */
-    fun amountFor(tier: PrizeTier, draw: Draw): Long = when {
-        tier.isFloating -> draw.gradeOf(tier)?.amountPerTicket ?: 0L
+    fun amountFor(tier: PrizeTier, draw: Draw): Long = amountFor(
+        tier = tier,
+        firstAmountYuan = draw.gradeOf(PrizeTier.FIRST)?.amountPerTicket ?: 0L,
+        secondAmountYuan = draw.gradeOf(PrizeTier.SECOND)?.amountPerTicket ?: 0L,
+    )
+
+    /** 不构造 [Draw] 的奖金口径，给模拟器的合成开奖使用。 */
+    fun amountFor(tier: PrizeTier, firstAmountYuan: Long, secondAmountYuan: Long): Long = when (tier) {
+        PrizeTier.FIRST -> firstAmountYuan
+        PrizeTier.SECOND -> secondAmountYuan
         else -> tier.fixedAmountYuan
     }
 

@@ -194,7 +194,7 @@ fun SavedTicketsSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SketchSectionTitle("已保存的号码")
+            SketchSectionTitle("已保存的号码", modifier = Modifier.weight(1f))
             SketchChip(
                 label = if (visibleTickets.size == tickets.size) {
                     "${tickets.size} 张"

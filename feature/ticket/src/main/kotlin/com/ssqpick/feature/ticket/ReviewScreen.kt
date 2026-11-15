@@ -483,7 +483,7 @@ private fun CalendarCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SketchSectionTitle("购票日历")
+            SketchSectionTitle("购票日历", modifier = Modifier.weight(1f))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 SketchMiniButton(label = "‹", seed = "cal-prev", onClick = { monthOffset-- })
                 SketchMiniButton(label = "›", seed = "cal-next", onClick = { monthOffset++ })
