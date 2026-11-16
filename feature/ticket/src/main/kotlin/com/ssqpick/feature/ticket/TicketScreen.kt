@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -104,6 +105,9 @@ fun TicketScreen(
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val fingerprint by viewModel.fingerprint.collectAsStateWithLifecycle()
     val bt by viewModel.backtest.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var coverageOpen by rememberSaveable { mutableStateOf(false) }
+    var coverageSaving by remember { mutableStateOf(false) }
 
     Box(modifier.fillMaxSize().background(SketchPalette.Canvas)) {
         LazyColumn(
@@ -129,6 +133,8 @@ fun TicketScreen(
                         onBlueCount = viewModel::setStrategyBlueCount,
                         onGenerate = viewModel::generateStrategy,
                     )
+                    Spacer(Modifier.height(14.dp))
+                    CoverageEntryCard(onOpen = { coverageOpen = true })
                     Spacer(Modifier.height(14.dp))
                     DraftCard(
                         ui = ui,
@@ -173,6 +179,21 @@ fun TicketScreen(
                 tilt = -0.3f,
             )
         }
+    }
+
+    if (coverageOpen) {
+        CoverageSheet(
+            saving = coverageSaving,
+            onDismiss = { if (!coverageSaving) coverageOpen = false },
+            onSave = { plan ->
+                coverageSaving = true
+                viewModel.saveCoverage(plan) { message ->
+                    coverageSaving = false
+                    coverageOpen = false
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
     }
 }
 

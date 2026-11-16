@@ -21,6 +21,7 @@ import com.ssqpick.rules.followersOf
 import com.ssqpick.store.DrawRepository
 import com.ssqpick.store.PurchaseRepository
 import com.ssqpick.store.SettingsStorage
+import com.ssqpick.store.SyncResult
 import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -34,12 +35,19 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
 /** 历史跟随的目标：红球或蓝球里的某个号。 */
 data class FollowTarget(val number: Int = 1, val isBlue: Boolean = false)
+
+/** 数据页手动同步的状态。 */
+data class DataSyncUiState(
+    val running: Boolean = false,
+    val message: String? = null,
+)
 
 /** 和值走势数据：最近若干期的红球和值 + 均值线。 */
 data class TrendData(
@@ -107,6 +115,26 @@ class DataViewModel(
 
     private val _notifyOn = MutableStateFlow(settingsStore.drawResultNotify)
     val notifyOn: StateFlow<Boolean> = _notifyOn.asStateFlow()
+
+    private val _sync = MutableStateFlow(DataSyncUiState())
+    val syncState: StateFlow<DataSyncUiState> = _sync.asStateFlow()
+
+    /** 数据页手动同步；与后台 Worker 共用仓库的单飞锁，不会重复请求。 */
+    fun syncNow() {
+        if (_sync.value.running) return
+        _sync.value = DataSyncUiState(running = true)
+        viewModelScope.launch {
+            val result = drawRepository.syncFromOfficial()
+            _sync.value = DataSyncUiState(
+                running = false,
+                message = when (result) {
+                    is SyncResult.Success -> "新增 ${result.imported} 期（本地共 ${result.totalDraws} 期）"
+                    SyncResult.AlreadyUpToDate -> "已是最新，无需同步"
+                    is SyncResult.Failure -> "同步失败：${result.reason}"
+                },
+            )
+        }
+    }
 
     /**
      * 设置"开奖结果通知"订阅（默认关）。

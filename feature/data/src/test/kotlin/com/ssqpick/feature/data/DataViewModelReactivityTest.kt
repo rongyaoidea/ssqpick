@@ -71,6 +71,15 @@ class DataViewModelReactivityTest {
     )
 
     @Test
+    fun `数据页手动同步完成给出提示`() = runTest {
+        val vm = DataViewModel(FakeDrawRepository(), FakeSettings(), computeDispatcher = dispatcher)
+        vm.syncNow()
+        advanceUntilIdle()
+        assertEquals(false, vm.syncState.value.running)
+        assertEquals("已是最新，无需同步", vm.syncState.value.message)
+    }
+
+    @Test
     fun `新开奖数据进来后所有派生功能同步重算`() = runTest {
         val repo = FakeDrawRepository()
         val d1 = draw("2026001", "2026-01-01", listOf(7, 1, 2, 3, 4, 5), 1)

@@ -100,6 +100,7 @@ fun DataScreen(
     val drawList by viewModel.drawList.collectAsStateWithLifecycle()
     val notifyOn by viewModel.notifyOn.collectAsStateWithLifecycle()
     val quality by viewModel.quality.collectAsStateWithLifecycle()
+    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
 
     // 开奖通知是订阅制：先把权限和系统开关问清楚，再写订阅状态。
     // 旧写法是先 toggle 再申请权限——用户拒绝后开关停在"已开启"，实际永远收不到。
@@ -228,10 +229,22 @@ fun DataScreen(
                     drawCount = drawList.size,
                     notifyOn = notifyOn,
                     notifyHint = notifyHint,
+                    syncState = syncState,
+                    onSync = viewModel::syncNow,
                     onToggleNotify = onToggleNotify,
                 )
                 Spacer(Modifier.height(14.dp))
+                LatestDrawCard(newest)
+                Spacer(Modifier.height(14.dp))
                 QualityCard(quality)
+                Spacer(Modifier.height(14.dp))
+                SimCard(
+                    ui = labUi,
+                    onOpen = {
+                        simLab.setDraft(currentDraft())
+                        labOpen = true
+                    },
+                )
                 Spacer(Modifier.height(14.dp))
                 BackupCard(
                     message = backupMessage,
@@ -286,14 +299,6 @@ fun DataScreen(
         }
         item {
             Column(Modifier.padding(horizontal = 14.dp)) {
-                SimCard(
-                    ui = labUi,
-                    onOpen = {
-                        simLab.setDraft(currentDraft())
-                        labOpen = true
-                    },
-                )
-                Spacer(Modifier.height(14.dp))
                 SketchCard(seed = "data-draws-head", tilt = 0.25f) {
                     Row(
                         Modifier.fillMaxWidth(),
@@ -343,7 +348,8 @@ fun DataScreen(
         items(visibleDraws, key = { it.code }) { draw ->
             DrawRow(
                 draw = draw,
-                allDraws = visibleDraws,
+                // 搜索只过滤列表显示；同期/同日对照仍用完整开奖库
+                allDraws = drawList,
                 expanded = draw.code == expandedCode,
                 onToggle = {
                     expandedCode = if (expandedCode == draw.code) null else draw.code
@@ -508,6 +514,48 @@ private fun BackupCard(
     }
 }
 
+/** 最新开奖：开奖号码放在数据页最上面，不用滚到 2000 期列表里找。 */
+@Composable
+private fun LatestDrawCard(newest: Draw?) {
+    SketchCard(seed = "data-latest", tilt = 0.2f) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SketchSectionTitle("最新开奖", modifier = Modifier.weight(1f))
+            SketchChip(
+                label = newest?.code ?: "—",
+                seed = "latest-code",
+                fill = null,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        if (newest == null) {
+            Text(
+                "同步开奖数据后，这里显示最新一期的号码。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.InkSoft,
+            )
+            return@SketchCard
+        }
+        Text(
+            newest.date.toString(),
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            newest.red.forEach { NumberBall(it, isBlue = false, size = SsqDimens.ballSizeSmall) }
+            Text("+", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+            NumberBall(newest.blue, isBlue = true, size = SsqDimens.ballSizeSmall)
+        }
+    }
+}
+
 /** 数据质量：只报事实，不解释成"数据好所以该买"。 */
 @Composable
 private fun QualityCard(q: DataQuality?) {
@@ -594,6 +642,8 @@ private fun NextDrawCard(
     drawCount: Int,
     notifyOn: Boolean,
     notifyHint: String?,
+    syncState: DataSyncUiState,
+    onSync: () -> Unit,
     onToggleNotify: () -> Unit,
 ) {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -634,12 +684,7 @@ private fun NextDrawCard(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            newest?.let { "最新一期：第 ${it.code} 期 · ${it.date}" } ?: "本地尚无开奖数据",
-            style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.InkSoft,
-        )
-        Text(
-            "本地共 $drawCount 期 · 数据截至 ${newest?.date ?: "—"}；建议每期后同步。",
+            "本地共 $drawCount 期 · 数据截至 ${newest?.date ?: "—"}",
             style = MaterialTheme.typography.bodySmall,
             color = SketchPalette.InkSoft,
         )
@@ -649,16 +694,34 @@ private fun NextDrawCard(
             color = SketchPalette.InkSoft,
         )
         Spacer(Modifier.height(10.dp))
-        SketchMiniButton(
-            label = if (notifyOn) "开奖通知：已开启" else "开奖通知：关闭中（点开启）",
-            seed = "draw-notify-toggle",
-            onClick = onToggleNotify,
-            filled = notifyOn,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SketchMiniButton(
+                label = if (syncState.running) "同步中…" else "同步数据",
+                seed = "data-sync",
+                onClick = onSync,
+                enabled = !syncState.running,
+                filled = true,
+                modifier = Modifier.weight(1f),
+            )
+            SketchMiniButton(
+                label = if (notifyOn) "通知：已开" else "通知：关闭",
+                seed = "draw-notify-toggle",
+                onClick = onToggleNotify,
+                filled = notifyOn,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        syncState.message?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (it.startsWith("同步失败")) SketchPalette.RedInk else SketchPalette.InkSoft,
+            )
+        }
         Spacer(Modifier.height(4.dp))
         Text(
-            "开启后，每天后台同步到新一期开奖时通知一次。",
+            "同步数据只拉官方公告；开奖通知每天后台检查一次。",
             style = MaterialTheme.typography.labelSmall,
             color = SketchPalette.InkFaint,
         )

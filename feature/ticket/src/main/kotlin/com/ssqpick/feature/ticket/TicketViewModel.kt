@@ -6,6 +6,7 @@ import com.ssqpick.model.Draw
 import com.ssqpick.model.Purchase
 import com.ssqpick.model.Ticket
 import com.ssqpick.model.TicketDraft
+import com.ssqpick.rules.CoveragePlan
 import com.ssqpick.rules.DraftBacktest
 import com.ssqpick.rules.DraftFingerprint
 import com.ssqpick.rules.HistoryRecord
@@ -701,6 +702,31 @@ class TicketViewModel(
             actionMessage = "已载入 #${ticket.id} 的号码，可修改后另存",
         )
         draftStorage.save(ticket.draft)
+    }
+
+    /**
+     * 保存预算覆盖方案：每注一个 6+1，蓝球尽量不同。
+     *
+     * 只保存号码，不自动记录购买——用户仍需在彩票店买完后再点「记录购买」。
+     */
+    fun saveCoverage(plan: CoveragePlan, onDone: (String) -> Unit = {}) {
+        if (plan.tickets.isEmpty()) return
+        viewModelScope.launch {
+            val result = runCatching {
+                plan.tickets.forEachIndexed { index, ticket ->
+                    ticketRepository.save(
+                        draft = ticket.toDraft(),
+                        label = "覆盖 ${plan.costYuan}元 · ${index + 1}/${plan.tickets.size}",
+                    )
+                }
+            }
+            val message = result.fold(
+                onSuccess = { "已保存 ${plan.tickets.size} 注覆盖票（${plan.costYuan} 元）" },
+                onFailure = { "覆盖票保存失败：${it.message ?: "未知错误"}" },
+            )
+            _ui.value = _ui.value.copy(actionMessage = message)
+            onDone(message)
+        }
     }
 
     /** 复制一张票：同一组号码、同一备注加“副本”，不复制购买记录。 */
