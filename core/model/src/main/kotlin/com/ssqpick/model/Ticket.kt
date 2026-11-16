@@ -92,6 +92,8 @@ data class TicketCheckResult(
     val tierCounts: Map<PrizeTier, Long>,
     /** 各奖级单注奖金（一二等奖取开奖公告的实付额）。 */
     val tierAmounts: Map<PrizeTier, Long>,
+    /** 原票面，用于结果卡展示号码与中奖章。 */
+    val draft: TicketDraft = TicketDraft(),
 ) {
     val topTier: PrizeTier? get() = tierCounts.keys.maxByOrNull { it.rank }
 

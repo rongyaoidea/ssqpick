@@ -104,13 +104,6 @@ fun MachineScreen(
 
             ResultStrip(m)
 
-            Spacer(Modifier.height(14.dp))
-            ExcludePanel(
-                ui = ui,
-                enabled = !m.isRunning && !ui.filterBusy,
-                onToggle = viewModel::toggleExclusion,
-            )
-
             Spacer(Modifier.height(16.dp))
             ActionBar(
                 machine = m,
@@ -123,6 +116,13 @@ fun MachineScreen(
                 onSelectAllBets = viewModel::selectAllBets,
                 onClearBetSelection = viewModel::clearBetSelection,
                 onSaveSelected = viewModel::saveSelected,
+            )
+
+            Spacer(Modifier.height(14.dp))
+            ExcludePanel(
+                ui = ui,
+                enabled = !m.isRunning && !ui.filterBusy,
+                onToggle = viewModel::toggleExclusion,
             )
 
             ui.saveMessage?.let {

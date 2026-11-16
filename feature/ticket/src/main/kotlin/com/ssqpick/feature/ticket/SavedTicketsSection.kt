@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ssqpick.designsystem.component.NumberBall
+import com.ssqpick.designsystem.component.WonStamp
 import com.ssqpick.designsystem.sketch.SketchBarRow
 import com.ssqpick.designsystem.sketch.SketchButton
 import com.ssqpick.designsystem.sketch.SketchCard
@@ -131,6 +132,7 @@ fun SavedTicketsSection(
     // 存票筛选与展开
     var filterIdx by rememberSaveable { mutableIntStateOf(0) }
     var expanded by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
     val filter = TicketFilter.entries[filterIdx]
     val visibleTickets = tickets.filter { t ->
         when (filter) {
@@ -139,7 +141,7 @@ fun SavedTicketsSection(
             TicketFilter.WON -> statuses[t.id] is TicketStatus.Won
             TicketFilter.BOUGHT -> (summaries[t.id]?.count ?: 0) > 0
         }
-    }
+    }.filter { matchesTicketQuery(it, query) }
     val shownTickets = if (expanded) visibleTickets else visibleTickets.take(collapsedCount)
 
     // —— 短信投注指令（00CP 体系）——
@@ -219,6 +221,14 @@ fun SavedTicketsSection(
                 )
             }
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            singleLine = true,
+            placeholder = { Text("搜索备注 / 号码 / 票号", style = MaterialTheme.typography.bodySmall) },
+            modifier = Modifier.fillMaxWidth(),
+        )
         // 下一期覆盖：等开奖的票盖住了哪些号——买下一期前看一眼缺哪些
         nextCoverage?.let { cov ->
             Spacer(Modifier.height(10.dp))
@@ -285,6 +295,7 @@ fun SavedTicketsSection(
                             requestNotifyPermission()
                         },
                         onRename = { renameTarget = ticket },
+                        onDuplicate = { viewModel.duplicate(ticket) },
                         onUndo = { viewModel.undoLastPurchase(ticket) },
                         onDelete = { viewModel.delete(ticket) },
                     )
@@ -419,6 +430,7 @@ private fun TicketRow(
     onCopy: () -> Unit,
     onRecord: () -> Unit,
     onRename: () -> Unit,
+    onDuplicate: () -> Unit,
     onUndo: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -475,23 +487,35 @@ private fun TicketRow(
             )
         }
         Spacer(Modifier.height(6.dp))
-        // 存票可能是 20 红大复式：一行摆不下会顶出屏幕，换行显示
-        FlowRow(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            ticket.draft.redPool.sorted().forEach {
-                NumberBall(it, isBlue = false, size = SsqDimens.ballSizeSmall)
+        // 存票可能是 20 红大复式：一行摆不下会顶出屏幕，换行显示。
+        // 中奖票在号码上直接盖红色章，金额一眼可见。
+        Box(Modifier.fillMaxWidth()) {
+            Column {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ticket.draft.redPool.sorted().forEach {
+                        NumberBall(it, isBlue = false, size = SsqDimens.ballSizeSmall)
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ticket.draft.bluePool.sorted().forEach {
+                        NumberBall(it, isBlue = true, size = SsqDimens.ballSizeSmall)
+                    }
+                }
             }
-        }
-        Spacer(Modifier.height(2.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            ticket.draft.bluePool.sorted().forEach {
-                NumberBall(it, isBlue = true, size = SsqDimens.ballSizeSmall)
+            if (status is TicketStatus.Won) {
+                WonStamp(
+                    tierLabel = status.topTier?.label,
+                    amountYuan = status.amountYuan,
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -543,6 +567,7 @@ private fun TicketRow(
                 filled = true,
             )
             SketchMiniButton(label = "备注", seed = "ticket-label-${ticket.id}", onClick = onRename)
+            SketchMiniButton(label = "复制", seed = "ticket-dup-${ticket.id}", onClick = onDuplicate)
             if ((summary?.count ?: 0) > 0) {
                 SketchMiniButton(label = "撤销购买", seed = "ticket-undo-${ticket.id}", onClick = onUndo)
             }
@@ -601,4 +626,20 @@ private enum class TicketFilter(val label: String) {
     PENDING("未开奖"),
     WON("中奖"),
     BOUGHT("已购"),
+}
+
+/** 搜索备注名、票号或号码串（"04 14 22"）。空查询匹配全部。 */
+private fun matchesTicketQuery(ticket: Ticket, query: String): Boolean {
+    val q = query.trim()
+    if (q.isEmpty()) return true
+    if (ticket.id.toString() == q) return true
+    if (ticket.label?.contains(q, ignoreCase = true) == true) return true
+    val numbers = buildString {
+        append(ticket.draft.redPool.sorted().joinToString(" ") { "%02d".format(it) })
+        append(' ')
+        append(ticket.draft.bluePool.sorted().joinToString(" ") { "%02d".format(it) })
+    }
+    return numbers.contains(q, ignoreCase = true) ||
+        ticket.draft.redPool.any { it.toString() == q } ||
+        ticket.draft.bluePool.any { it.toString() == q }
 }

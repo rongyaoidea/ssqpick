@@ -105,58 +105,73 @@ fun TicketScreen(
     val fingerprint by viewModel.fingerprint.collectAsStateWithLifecycle()
     val bt by viewModel.backtest.collectAsStateWithLifecycle()
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .background(SketchPalette.Canvas),
-        contentPadding = PaddingValues(vertical = 8.dp),
-    ) {
-        item {
-            Column(Modifier.padding(horizontal = 14.dp)) {
-                Spacer(Modifier.height(6.dp))
-                SyncCard(
-                    drawCount = ui.drawCount,
-                    message = ui.syncMessage,
-                    newest = ui.newestDraw,
-                    onSync = viewModel::syncDraws,
-                )
-                Spacer(Modifier.height(14.dp))
-                StrategyCard(
-                    strategy = ui.strategy,
-                    drawCount = ui.drawCount,
-                    onKind = viewModel::setStrategyKind,
-                    onLookback = viewModel::setStrategyLookback,
-                    onRedCount = viewModel::setStrategyRedCount,
-                    onBlueCount = viewModel::setStrategyBlueCount,
-                    onGenerate = viewModel::generateStrategy,
-                )
-                Spacer(Modifier.height(14.dp))
-                DraftCard(
-                    ui = ui,
-                    stats = stats,
-                    onToggleRed = viewModel::toggleRed,
-                    onToggleBlue = viewModel::toggleBlue,
-                    onBoldMode = viewModel::setBoldMode,
-                    onBlueBoldMode = viewModel::setBlueBoldMode,
-                    onClear = viewModel::clear,
-                    onRandom = viewModel::randomFill,
-                    onSave = { viewModel.save() },
-                )
-                ui.actionMessage?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = SketchPalette.Ink)
+    Box(modifier.fillMaxSize().background(SketchPalette.Canvas)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
+        ) {
+            item {
+                Column(Modifier.padding(horizontal = 14.dp)) {
+                    Spacer(Modifier.height(6.dp))
+                    SyncCard(
+                        drawCount = ui.drawCount,
+                        message = ui.syncMessage,
+                        newest = ui.newestDraw,
+                        onSync = viewModel::syncDraws,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    StrategyCard(
+                        strategy = ui.strategy,
+                        drawCount = ui.drawCount,
+                        onKind = viewModel::setStrategyKind,
+                        onLookback = viewModel::setStrategyLookback,
+                        onRedCount = viewModel::setStrategyRedCount,
+                        onBlueCount = viewModel::setStrategyBlueCount,
+                        onGenerate = viewModel::generateStrategy,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    DraftCard(
+                        ui = ui,
+                        stats = stats,
+                        onToggleRed = viewModel::toggleRed,
+                        onToggleBlue = viewModel::toggleBlue,
+                        onBoldMode = viewModel::setBoldMode,
+                        onBlueBoldMode = viewModel::setBlueBoldMode,
+                        onClear = viewModel::clear,
+                        onRandom = viewModel::randomFill,
+                    )
+                    ui.actionMessage?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = SketchPalette.Ink)
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    FingerprintStrip(fingerprint)
+                    Spacer(Modifier.height(14.dp))
+                    BacktestCard(
+                        bt = bt,
+                        draft = ui.draft,
+                        range = ui.backtestRange,
+                        onRange = viewModel::setBacktestRange,
+                    )
+                    Spacer(Modifier.height(24.dp))
                 }
-                Spacer(Modifier.height(14.dp))
-                FingerprintStrip(fingerprint)
-                Spacer(Modifier.height(14.dp))
-                BacktestCard(
-                    bt = bt,
-                    draft = ui.draft,
-                    range = ui.backtestRange,
-                    onRange = viewModel::setBacktestRange,
-                )
-                Spacer(Modifier.height(24.dp))
             }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(SketchPalette.Canvas)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            SketchButton(
+                label = if (ui.isValid) "保存这注（${ui.betCount} 注 / ${ui.priceYuan} 元）" else "保存这注",
+                onClick = { viewModel.save() },
+                enabled = ui.isValid,
+                seed = "ticket-save-sticky",
+                tilt = -0.3f,
+            )
         }
     }
 }
@@ -206,7 +221,6 @@ private fun DraftCard(
     onBlueBoldMode: (Boolean) -> Unit,
     onClear: () -> Unit,
     onRandom: () -> Unit,
-    onSave: () -> Unit,
 ) {
     val draft = ui.draft
     // 遗漏小字只在有开奖数据时出现；库里空时显示全 0 反而误导
@@ -294,13 +308,6 @@ private fun DraftCard(
 
         Spacer(Modifier.height(12.dp))
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            SketchButton(
-                label = "保存这注",
-                onClick = onSave,
-                enabled = ui.isValid,
-                seed = "ticket-save",
-                tilt = -0.4f,
-            )
             SketchButton(
                 label = "机选",
                 onClick = onRandom,

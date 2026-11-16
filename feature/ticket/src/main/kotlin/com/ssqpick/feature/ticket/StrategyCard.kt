@@ -15,6 +15,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -28,6 +33,7 @@ import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchChip
 import com.ssqpick.designsystem.sketch.SketchDivider
 import com.ssqpick.designsystem.sketch.SketchMetaRow
+import com.ssqpick.designsystem.sketch.SketchMiniButton
 import com.ssqpick.designsystem.sketch.SketchPalette
 import com.ssqpick.designsystem.sketch.SketchSectionTitle
 import com.ssqpick.designsystem.sketch.sketchBox
@@ -53,6 +59,10 @@ fun StrategyCard(
     onGenerate: () -> Unit,
 ) {
     val enabled = !strategy.busy
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(strategy.pick != null) {
+        if (strategy.pick != null) expanded = false
+    }
     SketchCard(seed = "ticket-strategy", tilt = 0.2f) {
         Row(
             Modifier.fillMaxWidth(),
@@ -69,71 +79,105 @@ fun StrategyCard(
         )
         Spacer(Modifier.height(10.dp))
 
-        Text("策略", style = MaterialTheme.typography.labelMedium, color = SketchPalette.InkSoft)
-        Spacer(Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
-            StrategyKind.entries.forEach { kind ->
-                StrategyChoice(
-                    label = kind.shortLabel,
-                    selected = kind == strategy.kind,
-                    enabled = enabled,
-                    onClick = { onKind(kind) },
+        if (expanded) {
+            Text("策略", style = MaterialTheme.typography.labelMedium, color = SketchPalette.InkSoft)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth()) {
+                StrategyKind.entries.forEach { kind ->
+                    StrategyChoice(
+                        label = kind.shortLabel,
+                        selected = kind == strategy.kind,
+                        enabled = enabled,
+                        onClick = { onKind(kind) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+            Text(
+                strategy.kind.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.InkSoft,
+            )
+
+            Spacer(Modifier.height(10.dp))
+            CountSlider(
+                label = "红球数量",
+                value = strategy.redCount,
+                range = TicketRules.RED_PICK..TicketRules.MAX_RED_COMPOUND,
+                enabled = enabled,
+                color = SketchPalette.RedInk,
+                onChange = onRedCount,
+            )
+            CountSlider(
+                label = "蓝球数量",
+                value = strategy.blueCount,
+                range = 1..TicketRules.BLUE_TOTAL,
+                enabled = enabled,
+                color = SketchPalette.BlueInk,
+                onChange = onBlueCount,
+            )
+            Text(
+                "${strategy.redCount} 红 + ${strategy.blueCount} 蓝 → ${strategy.betCount} 注 / ${strategy.priceYuan} 元",
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.InkSoft,
+            )
+
+            Spacer(Modifier.height(10.dp))
+            Text("回看窗口", style = MaterialTheme.typography.labelMedium, color = SketchPalette.InkSoft)
+            Spacer(Modifier.height(4.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                LOOKBACKS.forEach { window ->
+                    StrategyChoice(
+                        label = window.second,
+                        selected = strategy.lookback == window.first,
+                        enabled = enabled,
+                        onClick = { onLookback(window.first) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "研究：2019–2026 的 1089 期 walk-forward 未发现稳定最优窗口；默认 100 期只是产品选择。",
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkFaint,
+            )
+            Spacer(Modifier.height(6.dp))
+            SketchMiniButton(
+                label = "收起参数",
+                seed = "strategy-collapse",
+                onClick = { expanded = false },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${strategy.kind.shortLabel} · ${strategy.lookbackLabel} · " +
+                        "${strategy.redCount} 红 ${strategy.blueCount} 蓝",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = SketchPalette.InkSoft,
                     modifier = Modifier.weight(1f),
                 )
-            }
-        }
-        Spacer(Modifier.height(5.dp))
-        Text(
-            strategy.kind.description,
-            style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.InkSoft,
-        )
-
-        Spacer(Modifier.height(10.dp))
-        CountSlider(
-            label = "红球数量",
-            value = strategy.redCount,
-            range = TicketRules.RED_PICK..TicketRules.MAX_RED_COMPOUND,
-            enabled = enabled,
-            color = SketchPalette.RedInk,
-            onChange = onRedCount,
-        )
-        CountSlider(
-            label = "蓝球数量",
-            value = strategy.blueCount,
-            range = 1..TicketRules.BLUE_TOTAL,
-            enabled = enabled,
-            color = SketchPalette.BlueInk,
-            onChange = onBlueCount,
-        )
-        Text(
-            "${strategy.redCount} 红 + ${strategy.blueCount} 蓝 → ${strategy.betCount} 注 / ${strategy.priceYuan} 元",
-            style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.InkSoft,
-        )
-
-        Spacer(Modifier.height(10.dp))
-        Text("回看窗口", style = MaterialTheme.typography.labelMedium, color = SketchPalette.InkSoft)
-        Spacer(Modifier.height(4.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            LOOKBACKS.forEach { window ->
-                StrategyChoice(
-                    label = window.second,
-                    selected = strategy.lookback == window.first,
+                SketchMiniButton(
+                    label = "调整参数",
+                    seed = "strategy-expand",
+                    onClick = { expanded = true },
                     enabled = enabled,
-                    onClick = { onLookback(window.first) },
                 )
             }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${strategy.redCount} 红 + ${strategy.blueCount} 蓝 → ${strategy.betCount} 注 / ${strategy.priceYuan} 元",
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.InkSoft,
+            )
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "研究：2019–2026 的 1089 期 walk-forward 未发现稳定最优窗口；默认 100 期只是产品选择。",
-            style = MaterialTheme.typography.labelSmall,
-            color = SketchPalette.InkFaint,
-        )
 
         if (drawCount <= 0) {
             Spacer(Modifier.height(6.dp))

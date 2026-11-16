@@ -113,6 +113,7 @@ data class StrategyUiState(
 ) {
     val betCount: Long get() = TicketRules.binom(redCount.toLong(), 6) * blueCount
     val priceYuan: Long get() = betCount * TicketRules.PRICE_YUAN
+    val lookbackLabel: String get() = lookback?.let { "$it 期" } ?: "全部"
 }
 
 /** 手选号码界面。 */
@@ -378,6 +379,17 @@ class TicketViewModel(
     init {
         // 恢复上次的草稿：进程被杀或退出应用后，选了一半的号还在
         _ui.value = _ui.value.copy(draft = draftStorage.load())
+        // 恢复上次策略参数：窗口/数量/方法不必每次重配
+        draftStorage.loadStrategyConfig()?.let { cfg ->
+            _ui.value = _ui.value.copy(
+                strategy = _ui.value.strategy.copy(
+                    kind = cfg.kind,
+                    lookback = cfg.lookback,
+                    redCount = cfg.redCount,
+                    blueCount = cfg.blueCount,
+                ),
+            )
+        }
         // 已存期数跟着开奖库走：后台 Worker 每拉回一期，这里立刻涨。
         // 之前只在 init 查一次、手动同步成功时再写一次——Worker 先一步同步后，
         // "已存 N 期"会停在旧值（表现就是同步后"期数不更新"）。
@@ -526,6 +538,7 @@ class TicketViewModel(
         _ui.value = _ui.value.copy(
             strategy = _ui.value.strategy.copy(kind = kind, pick = null, message = null),
         )
+        persistStrategy()
     }
 
     fun setStrategyLookback(lookback: Int?) {
@@ -533,6 +546,7 @@ class TicketViewModel(
         _ui.value = _ui.value.copy(
             strategy = _ui.value.strategy.copy(lookback = lookback, pick = null, message = null),
         )
+        persistStrategy()
     }
 
     fun setStrategyRedCount(value: Int) {
@@ -544,6 +558,7 @@ class TicketViewModel(
         _ui.value = _ui.value.copy(
             strategy = current.copy(redCount = red, blueCount = blue, pick = null, message = null),
         )
+        persistStrategy()
     }
 
     fun setStrategyBlueCount(value: Int) {
@@ -554,6 +569,19 @@ class TicketViewModel(
         val red = current.redCount.coerceIn(TicketRules.RED_PICK, maxRed)
         _ui.value = _ui.value.copy(
             strategy = current.copy(redCount = red, blueCount = blue, pick = null, message = null),
+        )
+        persistStrategy()
+    }
+
+    private fun persistStrategy() {
+        val s = _ui.value.strategy
+        draftStorage.saveStrategyConfig(
+            StrategyConfig(
+                kind = s.kind,
+                redCount = s.redCount,
+                blueCount = s.blueCount,
+                lookback = s.lookback,
+            ),
         )
     }
 
@@ -638,6 +666,15 @@ class TicketViewModel(
     }
 
     // ------------------------------------------------------------ 票管理
+
+    /** 复制一张票：同一组号码、同一备注加“副本”，不复制购买记录。 */
+    fun duplicate(ticket: Ticket) {
+        viewModelScope.launch {
+            val label = ticket.label?.let { "$it（副本）" } ?: "号码 #${ticket.id} 副本"
+            val id = ticketRepository.save(ticket.draft, label)
+            _ui.value = _ui.value.copy(actionMessage = "已复制为 #$id")
+        }
+    }
 
     fun delete(ticket: Ticket) {
         viewModelScope.launch {

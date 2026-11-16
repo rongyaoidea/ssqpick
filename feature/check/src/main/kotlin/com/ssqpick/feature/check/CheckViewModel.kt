@@ -24,6 +24,10 @@ data class CheckUiState(
     /** 本地有、但对应的是别的期、因而没有参与本次核对的票数。 */
     val skippedCount: Int = 0,
     val totalAmountYuan: Long = 0L,
+    /** 可供按期核对的本地开奖（新→旧）。 */
+    val availableDraws: List<Draw> = emptyList(),
+    /** 本次核对的目标期号；null 表示最新。 */
+    val selectedCode: String? = null,
 ) {
     val winningTickets: Int get() = results.count { it.hasWon }
 }
@@ -50,6 +54,12 @@ class CheckViewModel(
                 _ui.value = _ui.value.copy(target = newest)
             }
         }
+        // 按期核对需要整份开奖库（至少期号/日期）；数据量 2000+ 期，只在内存里放列表，不复制进 UI
+        viewModelScope.launch {
+            drawRepository.observeAll().collect { draws ->
+                _ui.value = _ui.value.copy(availableDraws = draws)
+            }
+        }
     }
 
     /** 同步最新开奖数据，然后立即对奖。 */
@@ -59,11 +69,11 @@ class CheckViewModel(
             when (val r = drawRepository.syncFromOfficial()) {
                 is SyncResult.Success -> {
                     _ui.value = _ui.value.copy(message = "新增 ${r.imported} 期")
-                    checkAgainstLatest()
+                    checkAgainst()
                 }
 
                 SyncResult.AlreadyUpToDate -> {
-                    checkAgainstLatest()
+                    checkAgainst()
                 }
 
                 is SyncResult.Failure -> {
@@ -74,13 +84,13 @@ class CheckViewModel(
     }
 
     /**
-     * 对本地最新一期开奖核对**属于这一期**的已保存号码。
+     * 对本地某一期开奖核对**属于这一期**的已保存号码。[code] 为 null 时取最新一期。
      *
      * 每注号码都绑定"保存时刻之后的第一期开奖"（见 [ticketsForDraw]）：
      * 存给下一期的票不参与本期核对——拿上一期的开奖结果去对，只会得出
      * 一个没有意义的"未中奖"。
      */
-    fun checkAgainstLatest() {
+    fun checkAgainst(code: String? = null) {
         viewModelScope.launch {
             val draws = drawRepository.all()
             if (draws.isEmpty()) {
@@ -93,11 +103,16 @@ class CheckViewModel(
                 return@launch
             }
             val asc = draws.sortedBy { it.date }
-            val target = asc.last()
+            val target = if (code == null) asc.last() else asc.firstOrNull { it.code == code }
+            if (target == null) {
+                _ui.value = _ui.value.copy(checking = false, message = "本地没有第 $code 期开奖数据")
+                return@launch
+            }
             val (mine, others) = ticketsForDraw(ticketRepository.all(), target, asc)
             val results = mine.map { ticket -> evaluate(ticket.id, ticket.draft, target) }
             _ui.value = _ui.value.copy(
                 target = target,
+                selectedCode = target.code,
                 checking = false,
                 results = results,
                 skippedCount = others.size,
@@ -107,6 +122,9 @@ class CheckViewModel(
             )
         }
     }
+
+    /** 兼容旧入口：核对最新一期。 */
+    fun checkAgainstLatest() = checkAgainst(null)
 
     private fun evaluate(id: Long, draft: com.ssqpick.model.TicketDraft, draw: Draw): TicketCheckResult {
         val (total, breakdown) = TicketRules.evaluate(draft, draw)
@@ -118,6 +136,7 @@ class CheckViewModel(
             winningBetCount = breakdown.values.sum(),
             tierCounts = breakdown,
             tierAmounts = amounts,
+            draft = draft,
         )
     }
 

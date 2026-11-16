@@ -64,12 +64,17 @@ import com.ssqpick.feature.ticket.TicketViewModel
 import org.koin.compose.viewmodel.koinViewModel
 
 /** 五个顶层页。 */
-private enum class TopTab(val route: String, val label: String, val title: String) {
-    MACHINE("machine", "摇号", "摇号机"),
-    TICKET("ticket", "选号", "选号"),
-    CHECK("check", "对奖", "对奖"),
-    REVIEW("review", "复盘", "复盘"),
-    DATA("data", "数据", "数据"),
+private enum class TopTab(
+    val route: String,
+    val label: String,
+    val title: String,
+    val subtitle: String,
+) {
+    MACHINE("machine", "摇号", "摇号机", "CSPRNG 选号 · 物理演示"),
+    TICKET("ticket", "选号", "选号", "手选 / 策略 / 机选"),
+    CHECK("check", "对奖", "对奖", "按期核对 · 合计奖金"),
+    REVIEW("review", "复盘", "复盘", "只读账本 · 预算回顾"),
+    DATA("data", "数据", "数据", "开奖数据 · 历史统计"),
 }
 
 class MainActivity : ComponentActivity() {
@@ -253,7 +258,7 @@ private fun AppHeader(active: TopTab) {
             }
             Spacer(Modifier.padding(top = 2.dp))
             Text(
-                "选号由本地 CSPRNG 完成 · 摇号机只负责演示结果",
+                active.subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = SketchPalette.InkSoft,
             )

@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -146,6 +147,17 @@ fun DataScreen(
     }
 
     var expandedCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var drawQuery by rememberSaveable { mutableStateOf("") }
+    val visibleDraws = remember(drawList, drawQuery) {
+        val q = drawQuery.trim()
+        if (q.isEmpty()) {
+            drawList
+        } else {
+            drawList.filter {
+                it.code.contains(q, ignoreCase = true) || it.date.toString().contains(q)
+            }
+        }
+    }
 
     if (labOpen) {
         SimLabScreen(
@@ -168,6 +180,7 @@ fun DataScreen(
                 Spacer(Modifier.height(6.dp))
                 NextDrawCard(
                     newest = newest,
+                    drawCount = drawList.size,
                     notifyOn = notifyOn,
                     notifyHint = notifyHint,
                     onToggleNotify = onToggleNotify,
@@ -226,7 +239,15 @@ fun DataScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         SketchSectionTitle("往期开奖", modifier = Modifier.weight(1f))
-                        SketchChip(label = "${drawList.size} 期", seed = "draws-count", fill = null)
+                        SketchChip(
+                            label = if (visibleDraws.size == drawList.size) {
+                                "${drawList.size} 期"
+                            } else {
+                                "${visibleDraws.size} / ${drawList.size} 期"
+                            },
+                            seed = "draws-count",
+                            fill = null,
+                        )
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -234,14 +255,33 @@ fun DataScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = SketchPalette.InkSoft,
                     )
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = drawQuery,
+                        onValueChange = { drawQuery = it },
+                        singleLine = true,
+                        placeholder = { Text("搜索期号 / 日期", style = MaterialTheme.typography.bodySmall) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 Spacer(Modifier.height(4.dp))
             }
         }
-        items(drawList, key = { it.code }) { draw ->
+        if (visibleDraws.isEmpty() && drawQuery.isNotBlank()) {
+            item {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    Text(
+                        "没有匹配“$drawQuery”的期号或日期。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SketchPalette.InkSoft,
+                    )
+                }
+            }
+        }
+        items(visibleDraws, key = { it.code }) { draw ->
             DrawRow(
                 draw = draw,
-                allDraws = drawList,
+                allDraws = visibleDraws,
                 expanded = draw.code == expandedCode,
                 onToggle = {
                     expandedCode = if (expandedCode == draw.code) null else draw.code
@@ -369,6 +409,7 @@ private fun formatYuan(yuan: Long): String = when {
 @Composable
 private fun NextDrawCard(
     newest: Draw?,
+    drawCount: Int,
     notifyOn: Boolean,
     notifyHint: String?,
     onToggleNotify: () -> Unit,
@@ -412,6 +453,11 @@ private fun NextDrawCard(
         Spacer(Modifier.height(6.dp))
         Text(
             newest?.let { "最新一期：第 ${it.code} 期 · ${it.date}" } ?: "本地尚无开奖数据",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+        Text(
+            "本地共 $drawCount 期 · 数据截至 ${newest?.date ?: "—"}；建议每期后同步。",
             style = MaterialTheme.typography.bodySmall,
             color = SketchPalette.InkSoft,
         )
