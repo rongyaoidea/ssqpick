@@ -77,6 +77,35 @@ fun MachineScreen(
     ) {
         Spacer(Modifier.height(10.dp))
 
+        if (ui.showOnboarding) {
+            SketchCard(seed = "onboarding", tilt = -0.2f) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SketchSectionTitle("第一次用？", modifier = Modifier.weight(1f))
+                    SketchMiniButton(
+                        label = "知道了",
+                        seed = "onboarding-dismiss",
+                        onClick = viewModel::dismissOnboarding,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "① 摇号 / 手选一组号 → ② 保存这注 → ③ 彩票店买完点「记录购买」→ " +
+                        "④ 开奖后到「对奖」页同步。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SketchPalette.InkSoft,
+                )
+                Text(
+                    "历史统计只描述过去，不改变单注中奖概率；预算只用来止损。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SketchPalette.InkFaint,
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+
         SketchCard(seed = "machine", tilt = -0.3f) {
             Row(
                 Modifier.fillMaxWidth(),

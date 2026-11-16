@@ -163,7 +163,16 @@ private fun AppScaffold() {
                 val vm: CheckViewModel = koinViewModel()
                 CheckScreen(
                     viewModel = vm,
-                    savedTickets = { SavedTicketsSection(viewModel = ticketViewModel) },
+                    savedTickets = {
+                        SavedTicketsSection(
+                            viewModel = ticketViewModel,
+                            onTicketEdited = {
+                                navController.navigate(TopTab.TICKET.route) {
+                                    launchSingleTop = true
+                                }
+                            },
+                        )
+                    },
                 )
             }
             composable(TopTab.REVIEW.route) {

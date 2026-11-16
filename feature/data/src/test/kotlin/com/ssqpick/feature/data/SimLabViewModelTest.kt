@@ -90,6 +90,38 @@ class SimLabViewModelTest {
     }
 
     @Test
+    fun `AB 对照拒绝复式号码`() = runTest {
+        val vm = vm()
+        vm.setDraft(TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6, 7), bluePicked = setOf(1)))
+        vm.setPaths(2)
+        vm.setDrawsPerPath(2)
+        vm.runComparison()
+        advanceUntilIdle()
+
+        assertNull(vm.ui.value.comparison)
+        assertNotNull(vm.ui.value.error)
+        assertTrue(!vm.ui.value.running)
+    }
+
+    @Test
+    fun `AB 对照用同一成本和种子跑守号与机选`() = runTest {
+        val vm = vm()
+        val draft = TicketDraft(redPicked = setOf(1, 2, 3, 4, 5, 6), bluePicked = setOf(7))
+        vm.setDraft(draft)
+        vm.setPaths(2)
+        vm.setDrawsPerPath(3)
+        vm.runComparison()
+        advanceUntilIdle()
+
+        val c = vm.ui.value.comparison!!
+        assertNull(vm.ui.value.error)
+        assertEquals(SimStrategy.FixedDraft(draft), c.fixed.spec.strategy)
+        assertEquals(SimStrategy.RandomSingle, c.random.spec.strategy)
+        assertEquals(c.fixed.totalCostYuan, c.random.totalCostYuan)
+        assertEquals(c.fixed.spec.seed, c.random.spec.seed)
+    }
+
+    @Test
     fun `历史重放无数据时明确提示`() = runTest {
         val vm = vm()
         vm.setSource(SimSource.HISTORICAL)

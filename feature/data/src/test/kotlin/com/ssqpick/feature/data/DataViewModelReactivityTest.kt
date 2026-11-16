@@ -60,6 +60,7 @@ class DataViewModelReactivityTest {
 
     private class FakeSettings : SettingsStorage {
         override var drawResultNotify: Boolean = false
+        override var onboardingDismissed: Boolean = true
     }
 
     private fun draw(code: String, date: String, red: List<Int>, blue: Int) = Draw(

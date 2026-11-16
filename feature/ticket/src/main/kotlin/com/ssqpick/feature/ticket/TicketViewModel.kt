@@ -170,6 +170,30 @@ class TicketViewModel(
     val purchases: StateFlow<List<Purchase>> = purchaseRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** 本月预算（元），0 = 不限。 */
+    private val _monthlyBudget = MutableStateFlow(draftStorage.loadMonthlyBudgetYuan())
+    val monthlyBudget: StateFlow<Long> = _monthlyBudget.asStateFlow()
+
+    fun setMonthlyBudget(valueYuan: Long) {
+        val value = valueYuan.coerceAtLeast(0L)
+        _monthlyBudget.value = value
+        draftStorage.saveMonthlyBudgetYuan(value)
+    }
+
+    /** 本月（本地时区）已记录的真实投入。 */
+    val currentMonthCost: StateFlow<Long> = purchases
+        .map { ps ->
+            val today = Instant.fromEpochMilliseconds(System.currentTimeMillis())
+                .toLocalDateTime(TimeZone.currentSystemDefault()).date
+            ps.filter { p ->
+                val d = Instant.fromEpochMilliseconds(p.purchasedAtEpochMs)
+                    .toLocalDateTime(TimeZone.currentSystemDefault()).date
+                d.year == today.year && d.monthNumber == today.monthNumber
+            }.sumOf { it.costYuan }
+        }
+        .flowOn(computeDispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
     /**
      * 购买结算共享流：所有"这笔购买结果如何"的派生流都从这里取，
      * 一笔购买只结算一次。此前 statuses/summaries/ledger/calendar 各自
@@ -666,6 +690,18 @@ class TicketViewModel(
     }
 
     // ------------------------------------------------------------ 票管理
+
+    /** 把已保存的号码载回选号草稿；改动后另存为新票，不覆盖原票。 */
+    fun loadForEdit(ticket: Ticket) {
+        _ui.value = _ui.value.copy(
+            draft = ticket.draft,
+            autoReds = emptySet(),
+            autoBlues = emptySet(),
+            strategy = _ui.value.strategy.copy(pick = null, message = null),
+            actionMessage = "已载入 #${ticket.id} 的号码，可修改后另存",
+        )
+        draftStorage.save(ticket.draft)
+    }
 
     /** 复制一张票：同一组号码、同一备注加“副本”，不复制购买记录。 */
     fun duplicate(ticket: Ticket) {

@@ -175,6 +175,13 @@ interface TicketRepository {
     suspend fun save(draft: TicketDraft, label: String? = null): Long
     suspend fun rename(id: Long, label: String?)
     suspend fun delete(id: Long)
+
+    /**
+     * 按备份里的创建时间原样插入一张票。
+     * 默认实现只保存号码（测试替身不必实现）；生产实现保留 createdAt，
+     * 否则恢复后票的"对应期号"会整体漂移到恢复当天。
+     */
+    suspend fun import(ticket: Ticket): Long = save(ticket.draft, ticket.label)
 }
 
 class TicketRepositoryImpl(
@@ -224,14 +231,37 @@ class TicketRepositoryImpl(
             }
         }
     }
+
+    override suspend fun import(ticket: Ticket): Long = withContext(io) {
+        ticketQueries.transactionWithResult {
+            ticketQueries.insertTicket(
+                created_at = ticket.createdAtEpochMs,
+                label = ticket.label,
+                red_bold = ticket.draft.redBold.toList().encode(),
+                red_picked = ticket.draft.redPicked.toList().encode(),
+                blue_bold = ticket.draft.blueBold.toList().encode(),
+                blue_picked = ticket.draft.bluePicked.toList().encode(),
+            )
+            ticketQueries.selectLastInsertRowId().executeAsOne()
+        }
+    }
 }
 
 interface PurchaseRepository {
     fun observeAll(): Flow<List<Purchase>>
+    suspend fun all(): List<Purchase> = emptyList()
 
     /** 未结算（还没有开奖结果）的购买，后台结算用。 */
     suspend fun unsettled(): List<Purchase>
     suspend fun record(ticketId: Long, costYuan: Long)
+
+    /** 按备份里的时间与结算标记插入一笔购买。默认实现落成"现在"，测试替身不必实现。 */
+    suspend fun import(
+        ticketId: Long,
+        purchasedAtEpochMs: Long,
+        costYuan: Long,
+        settled: Boolean = false,
+    ) = record(ticketId, costYuan)
     suspend fun settle(ids: List<Long>)
     suspend fun delete(id: Long)
 }
@@ -243,6 +273,10 @@ class PurchaseRepositoryImpl(
 
     override fun observeAll(): Flow<List<Purchase>> = purchaseQueries.selectAllPurchases().asFlow().mapToList(io).map { rows -> rows.map { it.toPurchase() } }
 
+    override suspend fun all(): List<Purchase> = withContext(io) {
+        purchaseQueries.selectAllPurchases().executeAsList().map { it.toPurchase() }
+    }
+
     override suspend fun unsettled(): List<Purchase> = withContext(io) {
         purchaseQueries.selectUnsettledPurchases().executeAsList().map { it.toPurchase() }
     }
@@ -253,6 +287,22 @@ class PurchaseRepositoryImpl(
                 ticket_id = ticketId,
                 purchased_at = System.currentTimeMillis(),
                 cost_yuan = costYuan,
+            )
+        }
+    }
+
+    override suspend fun import(
+        ticketId: Long,
+        purchasedAtEpochMs: Long,
+        costYuan: Long,
+        settled: Boolean,
+    ) {
+        withContext(io) {
+            purchaseQueries.insertImportedPurchase(
+                ticket_id = ticketId,
+                purchased_at = purchasedAtEpochMs,
+                cost_yuan = costYuan,
+                settled = if (settled) 1L else 0L,
             )
         }
     }

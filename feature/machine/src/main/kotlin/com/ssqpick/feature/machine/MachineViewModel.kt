@@ -11,6 +11,7 @@ import com.ssqpick.rules.HistoryRecord
 import com.ssqpick.rules.HistoryScanner
 import com.ssqpick.rules.TicketRules
 import com.ssqpick.rules.targetLabel
+import com.ssqpick.store.SettingsStorage
 import com.ssqpick.store.TicketRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -41,6 +42,8 @@ data class DrawUiState(
     val filterBusy: Boolean = false,
     /** 筛选失败/无数据时的提示。 */
     val filterMessage: String? = null,
+    /** 首次使用引导；看过一次后不再出现。 */
+    val showOnboarding: Boolean = false,
 )
 
 /**
@@ -55,10 +58,19 @@ class MachineViewModel(
     val controller: MachineController = MachineController(),
     /** 历史筛选在后台算：2000 期 × 若干次尝试不应占住主线程。 */
     private val filterDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /** 可空便于旧测试只构造前三个参数；生产由 Koin 注入。 */
+    private val settings: SettingsStorage? = null,
 ) : ViewModel() {
 
-    private val _ui = MutableStateFlow(DrawUiState())
+    private val _ui = MutableStateFlow(
+        DrawUiState(showOnboarding = settings?.onboardingDismissed == false),
+    )
     val ui: StateFlow<DrawUiState> = _ui.asStateFlow()
+
+    fun dismissOnboarding() {
+        settings?.onboardingDismissed = true
+        _ui.value = _ui.value.copy(showOnboarding = false)
+    }
 
     init {
         viewModelScope.launch {

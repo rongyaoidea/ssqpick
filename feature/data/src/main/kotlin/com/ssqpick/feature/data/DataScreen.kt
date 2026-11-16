@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +56,7 @@ import com.ssqpick.model.Draw
 import com.ssqpick.model.PrizeTier
 import com.ssqpick.model.TicketDraft
 import com.ssqpick.rules.CoOccurrenceReport
+import com.ssqpick.rules.DataQuality
 import com.ssqpick.rules.DrawSchedule
 import com.ssqpick.rules.FollowReport
 import com.ssqpick.rules.NumberStats
@@ -63,7 +65,10 @@ import com.ssqpick.rules.PeriodMatch
 import com.ssqpick.rules.ShapeStats
 import com.ssqpick.rules.onThisDayOf
 import com.ssqpick.rules.samePeriodOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -94,6 +99,7 @@ fun DataScreen(
     var labOpen by rememberSaveable { mutableStateOf(false) }
     val drawList by viewModel.drawList.collectAsStateWithLifecycle()
     val notifyOn by viewModel.notifyOn.collectAsStateWithLifecycle()
+    val quality by viewModel.quality.collectAsStateWithLifecycle()
 
     // 开奖通知是订阅制：先把权限和系统开关问清楚，再写订阅状态。
     // 旧写法是先 toggle 再申请权限——用户拒绝后开关停在"已开启"，实际永远收不到。
@@ -146,6 +152,45 @@ fun DataScreen(
         }
     }
 
+    // 备份/恢复走系统文件选择器，不申请存储权限
+    val ioScope = rememberCoroutineScope()
+    var backupMessage by remember { mutableStateOf<String?>(null) }
+    var backupBusy by remember { mutableStateOf(false) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        ioScope.launch {
+            backupBusy = true
+            backupMessage = runCatching {
+                val json = viewModel.buildBackupJson()
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(json.toByteArray(Charsets.UTF_8))
+                    } ?: error("无法写入所选文件")
+                }
+                "已导出备份文件"
+            }.getOrElse { "导出失败：${it.message ?: "未知错误"}" }
+            backupBusy = false
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        ioScope.launch {
+            backupBusy = true
+            backupMessage = runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                        ?: error("无法读取所选文件")
+                }
+                viewModel.restoreBackupJson(text)
+            }.getOrElse { "恢复失败：${it.message ?: "未知错误"}" }
+            backupBusy = false
+        }
+    }
+
     var expandedCode by rememberSaveable { mutableStateOf<String?>(null) }
     var drawQuery by rememberSaveable { mutableStateOf("") }
     val visibleDraws = remember(drawList, drawQuery) {
@@ -184,6 +229,23 @@ fun DataScreen(
                     notifyOn = notifyOn,
                     notifyHint = notifyHint,
                     onToggleNotify = onToggleNotify,
+                )
+                Spacer(Modifier.height(14.dp))
+                QualityCard(quality)
+                Spacer(Modifier.height(14.dp))
+                BackupCard(
+                    message = backupMessage,
+                    busy = backupBusy,
+                    onExport = {
+                        backupMessage = null
+                        val date = Instant.fromEpochMilliseconds(System.currentTimeMillis())
+                            .toLocalDateTime(TimeZone.currentSystemDefault()).date
+                        exportLauncher.launch("ssqpick-backup-$date.json")
+                    },
+                    onImport = {
+                        backupMessage = null
+                        importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                    },
                 )
                 Spacer(Modifier.height(14.dp))
             }
@@ -403,6 +465,126 @@ private fun formatYuan(yuan: Long): String = when {
     yuan >= 100_000_000 -> "%.2f 亿".format(yuan / 100_000_000.0)
     yuan >= 10_000 -> "%.0f 万".format(yuan / 10_000.0)
     else -> "$yuan 元"
+}
+
+/** 备份与恢复：只动自己的号码与购买记录，开奖库靠同步。 */
+@Composable
+private fun BackupCard(
+    message: String?,
+    busy: Boolean,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+) {
+    SketchCard(seed = "data-backup", tilt = -0.2f) {
+        SketchSectionTitle("备份与恢复")
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "导出一个 JSON：包含保存的号码与「记录购买」的账本，不含开奖数据。" +
+                "恢复是合并，不会删除本机已有的记录。",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SketchMiniButton(
+                label = if (busy) "处理中…" else "导出备份",
+                seed = "backup-export",
+                onClick = onExport,
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+            )
+            SketchMiniButton(
+                label = "从文件恢复",
+                seed = "backup-import",
+                onClick = onImport,
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        message?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, style = MaterialTheme.typography.labelSmall, color = SketchPalette.Ink)
+        }
+    }
+}
+
+/** 数据质量：只报事实，不解释成"数据好所以该买"。 */
+@Composable
+private fun QualityCard(q: DataQuality?) {
+    SketchCard(seed = "data-quality", tilt = 0.2f) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SketchSectionTitle("数据质量", modifier = Modifier.weight(1f))
+            SketchChip(
+                label = when {
+                    q == null -> "无数据"
+                    q.healthy -> "正常"
+                    else -> "有异常"
+                },
+                seed = "quality-chip",
+                fill = if (q?.healthy == true) null else SketchPalette.Highlighter,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        if (q == null) {
+            Text(
+                "同步开奖数据后，这里检查缺期、号码与奖金字段。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.InkSoft,
+            )
+            return@SketchCard
+        }
+        SketchMetaRow(
+            label = "期数 / 跨度",
+            value = "${q.totalDraws} 期 · ${q.earliestDate} → ${q.latestDate}",
+        )
+        SketchMetaRow(
+            label = "期号连续性",
+            value = if (q.missingCodeCount == 0) {
+                "连续"
+            } else {
+                "缺 ${q.missingCodeCount} 期（${q.missingCodeSamples.joinToString(" ") { it }}）"
+            },
+            valueColor = if (q.missingCodeCount == 0) SketchPalette.Ink else SketchPalette.RedInk,
+        )
+        SketchMetaRow(
+            label = "号码合法性",
+            value = if (q.invalidCodeCount == 0) {
+                "全部合法"
+            } else {
+                "${q.invalidCodeCount} 期异常（${q.invalidCodeSamples.joinToString(" ") { it }}）"
+            },
+            valueColor = if (q.invalidCodeCount == 0) SketchPalette.Ink else SketchPalette.RedInk,
+        )
+        SketchMetaRow(
+            label = "一二等奖金额",
+            value = if (q.missingPrizeCount == 0) "完整" else "缺 ${q.missingPrizeCount} 期",
+            valueColor = if (q.missingPrizeCount == 0) SketchPalette.Ink else SketchPalette.RedInk,
+        )
+        SketchMetaRow(
+            label = "开奖日",
+            value = if (q.offScheduleCount == 0) "都在周二 / 四 / 日" else "${q.offScheduleCount} 期不在常规日",
+            valueColor = if (q.offScheduleCount == 0) SketchPalette.Ink else SketchPalette.RedInk,
+        )
+        SketchMetaRow(
+            label = "新鲜度",
+            value = when (val days = q.daysSinceLatest) {
+                null -> "—"
+                0L -> "最新一期是今天"
+                else -> "最新一期在 $days 天前" + if (days > DataQuality.STALE_DAYS) "（偏旧，建议同步）" else ""
+            },
+            valueColor = if ((q.daysSinceLatest ?: 0) > DataQuality.STALE_DAYS) SketchPalette.RedInk else SketchPalette.Ink,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "数据来自福彩官方公告；发现缺期或异常时，先重新同步。",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkFaint,
+        )
+    }
 }
 
 /** 下期开奖倒计时。历法规则来自 DrawSchedule，休市顺延以官方为准。 */

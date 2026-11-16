@@ -15,6 +15,10 @@ interface DraftStorage {
     /** 上次使用的策略参数；默认无，便于测试替身只实现草稿读写。 */
     fun loadStrategyConfig(): StrategyConfig? = null
     fun saveStrategyConfig(config: StrategyConfig) {}
+
+    /** 本月预算（元）；0 = 不限。 */
+    fun loadMonthlyBudgetYuan(): Long = 0L
+    fun saveMonthlyBudgetYuan(value: Long) {}
 }
 
 /** SharedPreferences 实现。四项号码集合各存一个逗号分隔串，足够小。 */
@@ -60,6 +64,12 @@ class PrefsDraftStore(context: Context) : DraftStorage {
             .apply()
     }
 
+    override fun loadMonthlyBudgetYuan(): Long = prefs.getLong(KEY_MONTHLY_BUDGET, 0L)
+
+    override fun saveMonthlyBudgetYuan(value: Long) {
+        prefs.edit().putLong(KEY_MONTHLY_BUDGET, value.coerceAtLeast(0L)).apply()
+    }
+
     private companion object {
         const val PREFS = "ssq_draft"
         const val KEY_RED_BOLD = "red_bold"
@@ -70,5 +80,6 @@ class PrefsDraftStore(context: Context) : DraftStorage {
         const val KEY_STRATEGY_RED = "strategy_red"
         const val KEY_STRATEGY_BLUE = "strategy_blue"
         const val KEY_STRATEGY_LOOKBACK = "strategy_lookback"
+        const val KEY_MONTHLY_BUDGET = "monthly_budget_yuan"
     }
 }

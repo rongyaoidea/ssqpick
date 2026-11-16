@@ -111,6 +111,11 @@ fun SimLabScreen(
         SettingsCard(ui = ui, viewModel = viewModel)
         Spacer(Modifier.height(14.dp))
 
+        ui.comparison?.let { comparison ->
+            CompareCard(comparison)
+            Spacer(Modifier.height(14.dp))
+        }
+
         ui.result?.let { result ->
             Column(Modifier.bringIntoViewRequester(resultRequester)) {
                 SummaryCard(result = result)
@@ -313,7 +318,80 @@ private fun SettingsCard(ui: SimLabUiState, viewModel: SimLabViewModel) {
                 seed = "sim-run",
                 tilt = -0.3f,
             )
+            Spacer(Modifier.height(8.dp))
+            SketchMiniButton(
+                label = "A/B：守号 vs 每期机选",
+                seed = "sim-compare",
+                onClick = viewModel::runComparison,
+                enabled = !ui.scaleTooLarge && ui.draftBetCount == 1L,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                if (ui.draftBetCount == 1L) {
+                    "同一注单式 6+1、同一预算与种子，只改“换不换号”。复式不能这样比。"
+                } else {
+                    "A/B 只支持单式 6+1：复式和随机单注的成本不同，比了也不公平。"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = SketchPalette.InkFaint,
+            )
         }
+    }
+}
+
+/** 守号 / 每期机选对照：只报分布差异，不宣布赢家。 */
+@Composable
+private fun CompareCard(c: SimComparison) {
+    SketchCard(seed = "sim-compare-result", tilt = 0.18f) {
+        SketchSectionTitle("A/B 对照")
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "守号：同一注 6+1 买满 ${c.fixed.spec.drawsPerPath} 期　|　" +
+                "每期机选：每期重新随机 1 注",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkSoft,
+        )
+        Spacer(Modifier.height(8.dp))
+        SketchMetaRow(
+            label = "总投入",
+            value = "%,d / %,d 元".format(c.fixed.totalCostYuan, c.random.totalCostYuan),
+        )
+        SketchMetaRow(
+            label = "总奖金",
+            value = "%,d / %,d 元".format(c.fixed.totalPrizeYuan, c.random.totalPrizeYuan),
+        )
+        SketchMetaRow(
+            label = "净收益中位数",
+            value = "%+,.0f / %+,.0f 元".format(
+                c.fixed.fan.p50.lastOrNull() ?: 0f,
+                c.random.fan.p50.lastOrNull() ?: 0f,
+            ),
+        )
+        SketchMetaRow(
+            label = "中奖注数",
+            value = "%,d / %,d".format(
+                c.fixed.tierStats.values.sumOf { it.hits },
+                c.random.tierStats.values.sumOf { it.hits },
+            ),
+        )
+        SketchMetaRow(
+            label = "回报率中位数",
+            value = "%s / %s".format(pct(c.fixed.roi.p50), pct(c.random.roi.p50)),
+        )
+        SketchMetaRow(
+            label = "预算耗尽路径",
+            value = "%s / %s".format(pct(c.fixed.ruinShare), pct(c.random.ruinShare)),
+        )
+        SketchMetaRow(
+            label = "最长未中（中位）",
+            value = "${c.fixed.medianLongestNoWin} / ${c.random.medianLongestNoWin} 期",
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "两组期望相同且都为负。若这里看起来有一边更好，那只是这一次抽样的波动，不是换号更灵。",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkFaint,
+        )
     }
 }
 

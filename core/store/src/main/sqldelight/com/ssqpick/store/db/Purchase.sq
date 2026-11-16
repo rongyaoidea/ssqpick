@@ -14,6 +14,11 @@ insertPurchase:
 INSERT INTO purchase (ticket_id, purchased_at, cost_yuan, settled)
 VALUES (?, ?, ?, 0);
 
+-- 备份恢复：时间与 settled 都按原样写回
+insertImportedPurchase:
+INSERT INTO purchase (ticket_id, purchased_at, cost_yuan, settled)
+VALUES (?, ?, ?, ?);
+
 markPurchaseSettled:
 UPDATE purchase SET settled = 1 WHERE id = ?;
 

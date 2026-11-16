@@ -10,6 +10,7 @@ val machineModule = module {
         MachineViewModel(
             ticketRepository = get(),
             historyProvider = get(),
+            settings = get(),
         )
     }
 }

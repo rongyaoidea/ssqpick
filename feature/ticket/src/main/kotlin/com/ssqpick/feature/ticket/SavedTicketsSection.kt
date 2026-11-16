@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -101,6 +102,8 @@ fun SavedTicketsSection(
     viewModel: TicketViewModel,
     modifier: Modifier = Modifier,
     collapsedCount: Int = 8,
+    /** 在"对奖"页改号时切回选号页；选号页自己调用时保持 null。 */
+    onTicketEdited: (() -> Unit)? = null,
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val tickets by viewModel.tickets.collectAsStateWithLifecycle()
@@ -296,6 +299,15 @@ fun SavedTicketsSection(
                         },
                         onRename = { renameTarget = ticket },
                         onDuplicate = { viewModel.duplicate(ticket) },
+                        onEdit = {
+                            viewModel.loadForEdit(ticket)
+                            Toast.makeText(
+                                context,
+                                "已载入 #${ticket.id} 的号码，去「选号」页修改",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            onTicketEdited?.invoke()
+                        },
                         onUndo = { viewModel.undoLastPurchase(ticket) },
                         onDelete = { viewModel.delete(ticket) },
                     )
@@ -431,6 +443,7 @@ private fun TicketRow(
     onRecord: () -> Unit,
     onRename: () -> Unit,
     onDuplicate: () -> Unit,
+    onEdit: () -> Unit,
     onUndo: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -568,6 +581,7 @@ private fun TicketRow(
             )
             SketchMiniButton(label = "备注", seed = "ticket-label-${ticket.id}", onClick = onRename)
             SketchMiniButton(label = "复制", seed = "ticket-dup-${ticket.id}", onClick = onDuplicate)
+            SketchMiniButton(label = "改号", seed = "ticket-edit-${ticket.id}", onClick = onEdit)
             if ((summary?.count ?: 0) > 0) {
                 SketchMiniButton(label = "撤销购买", seed = "ticket-undo-${ticket.id}", onClick = onUndo)
             }

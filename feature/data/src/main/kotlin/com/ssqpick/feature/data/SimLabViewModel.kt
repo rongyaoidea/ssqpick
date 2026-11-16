@@ -31,6 +31,12 @@ enum class SimLabStrategyKind(val label: String) {
 
 const val FIXED_SIM_SEED = 20261116L
 
+/** 同一预算/种子/期数下的守号与每期机选对照。 */
+data class SimComparison(
+    val fixed: SimResult,
+    val random: SimResult,
+)
+
 /**
  * 模拟实验室的界面状态。
  *
@@ -49,6 +55,7 @@ data class SimLabUiState(
     val running: Boolean = false,
     val progress: Float = 0f,
     val result: SimResult? = null,
+    val comparison: SimComparison? = null,
     val error: String? = null,
 ) {
     val draftValid: Boolean get() = draft != null && draftBetCount > 0
@@ -94,32 +101,32 @@ class SimLabViewModel(
 
     fun setSource(value: SimSource) {
         if (_ui.value.running) return
-        _ui.update { it.copy(source = value, error = null) }
+        _ui.update { it.copy(source = value, comparison = null, error = null) }
     }
 
     fun setStrategy(value: SimLabStrategyKind) {
         if (_ui.value.running) return
-        _ui.update { it.copy(strategy = value, error = null) }
+        _ui.update { it.copy(strategy = value, comparison = null, error = null) }
     }
 
     fun setPaths(value: Int) {
         if (_ui.value.running) return
-        _ui.update { it.copy(paths = value.coerceIn(1, SimSpec.MAX_PATHS), error = null) }
+        _ui.update { it.copy(paths = value.coerceIn(1, SimSpec.MAX_PATHS), comparison = null, error = null) }
     }
 
     fun setDrawsPerPath(value: Int) {
         if (_ui.value.running) return
-        _ui.update { it.copy(drawsPerPath = value.coerceIn(1, SimSpec.MAX_DRAWS), error = null) }
+        _ui.update { it.copy(drawsPerPath = value.coerceIn(1, SimSpec.MAX_DRAWS), comparison = null, error = null) }
     }
 
     fun setBudget(value: Long?) {
         if (_ui.value.running) return
-        _ui.update { it.copy(budgetYuan = value, error = null) }
+        _ui.update { it.copy(budgetYuan = value, comparison = null, error = null) }
     }
 
     fun rerollSeed() {
         if (_ui.value.running) return
-        _ui.update { it.copy(seed = System.currentTimeMillis(), error = null) }
+        _ui.update { it.copy(seed = System.currentTimeMillis(), comparison = null, error = null) }
     }
 
     /** 打开实验室/切换策略时把选号页当前草稿带进来。 */
@@ -129,6 +136,7 @@ class SimLabViewModel(
             it.copy(
                 draft = if (bets > 0) draft else null,
                 draftBetCount = bets,
+                comparison = null,
             )
         }
     }
@@ -174,7 +182,7 @@ class SimLabViewModel(
             return
         }
 
-        _ui.update { it.copy(running = true, progress = 0f, error = null, result = null) }
+        _ui.update { it.copy(running = true, progress = 0f, error = null, result = null, comparison = null) }
         runJob = viewModelScope.launch {
             try {
                 val result = withContext(computeDispatcher) {
@@ -201,6 +209,88 @@ class SimLabViewModel(
                         running = false,
                         error = e.message ?: "模拟失败，请稍后重试",
                     )
+                }
+            }
+        }
+    }
+
+    /**
+     * A/B 对照：同一组单式 6+1 号码，守号 vs 每期机选。
+     *
+     * 限定单式是为了公平——复式每期成本不同，拿守复式和随机单注对比没有意义。
+     * 两份结果共用同一个 seed/source/budget/期数，唯一变量是"换不换号"。
+     */
+    fun runComparison() {
+        val state = _ui.value
+        if (state.running) return
+        val draft = state.draft
+        if (draft == null || !draft.isValid || draft.betCount != 1L) {
+            _ui.update { it.copy(error = "A/B 对比需要选号页有一注单式 6+1 号码。") }
+            return
+        }
+        if (state.scaleTooLarge) {
+            _ui.update {
+                it.copy(error = "实验规模过大：${it.paths} 次 × ${it.drawsPerPath} 期，请降低一项。")
+            }
+            return
+        }
+        if (state.source == SimSource.HISTORICAL && draws.isEmpty()) {
+            _ui.update { it.copy(error = "历史重放需要先在“数据”页同步开奖数据。") }
+            return
+        }
+        val fixedSpec = try {
+            SimSpec(
+                source = state.source,
+                strategy = SimStrategy.FixedDraft(draft),
+                paths = state.paths,
+                drawsPerPath = state.drawsPerPath,
+                budgetYuan = state.budgetYuan,
+                seed = state.seed,
+            )
+        } catch (e: IllegalArgumentException) {
+            _ui.update { it.copy(error = e.message ?: "实验参数不合法") }
+            return
+        }
+        val randomSpec = fixedSpec.copy(strategy = SimStrategy.RandomSingle)
+
+        _ui.update {
+            it.copy(running = true, progress = 0f, error = null, result = null, comparison = null)
+        }
+        runJob = viewModelScope.launch {
+            try {
+                val fixed = withContext(computeDispatcher) {
+                    simulate(
+                        spec = fixedSpec,
+                        draws = draws,
+                        onProgress = { p -> _ui.update { it.copy(progress = p * 0.5f) } },
+                        shouldCancel = { !isActive },
+                    )
+                }
+                if (fixed == null) {
+                    _ui.update { it.copy(running = false) }
+                    return@launch
+                }
+                val random = withContext(computeDispatcher) {
+                    simulate(
+                        spec = randomSpec,
+                        draws = draws,
+                        onProgress = { p -> _ui.update { it.copy(progress = 0.5f + p * 0.5f) } },
+                        shouldCancel = { !isActive },
+                    )
+                }
+                _ui.update {
+                    it.copy(
+                        running = false,
+                        progress = 1f,
+                        comparison = random?.let { r -> SimComparison(fixed = fixed, random = r) },
+                    )
+                }
+            } catch (c: CancellationException) {
+                _ui.update { it.copy(running = false) }
+                throw c
+            } catch (e: Exception) {
+                _ui.update {
+                    it.copy(running = false, error = e.message ?: "模拟失败，请稍后重试")
                 }
             }
         }

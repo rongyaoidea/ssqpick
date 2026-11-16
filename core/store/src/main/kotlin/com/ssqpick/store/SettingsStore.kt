@@ -6,6 +6,9 @@ import android.content.Context
 interface SettingsStorage {
     /** 订阅"新一期开奖"通知。 */
     var drawResultNotify: Boolean
+
+    /** 首次使用引导是否已看过。 */
+    var onboardingDismissed: Boolean
 }
 
 /**
@@ -24,8 +27,15 @@ class SettingsStore(context: Context) : SettingsStorage {
             prefs.edit().putBoolean(KEY_DRAW_NOTIFY, value).apply()
         }
 
+    override var onboardingDismissed: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDING_DONE, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_ONBOARDING_DONE, value).apply()
+        }
+
     private companion object {
         const val PREFS = "ssq_settings"
         const val KEY_DRAW_NOTIFY = "draw_result_notify"
+        const val KEY_ONBOARDING_DONE = "onboarding_dismissed"
     }
 }

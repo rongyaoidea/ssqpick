@@ -55,6 +55,7 @@ import com.ssqpick.designsystem.sketch.SketchBarRow
 import com.ssqpick.designsystem.sketch.SketchButton
 import com.ssqpick.designsystem.sketch.SketchCard
 import com.ssqpick.designsystem.sketch.SketchChip
+import com.ssqpick.designsystem.sketch.SketchDivider
 import com.ssqpick.designsystem.sketch.SketchLineChart
 import com.ssqpick.designsystem.sketch.SketchMetaRow
 import com.ssqpick.designsystem.sketch.SketchMiniButton
@@ -115,6 +116,9 @@ fun ReviewScreen(
     val calendarMarks by viewModel.calendarMarks.collectAsStateWithLifecycle()
     val dayEntries by viewModel.dayEntries.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val monthlyBudget by viewModel.monthlyBudget.collectAsStateWithLifecycle()
+    val monthCost by viewModel.currentMonthCost.collectAsStateWithLifecycle()
+    var budgetSheetOpen by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = modifier
@@ -140,6 +144,12 @@ fun ReviewScreen(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
+                BudgetCard(
+                    budgetYuan = monthlyBudget,
+                    spentYuan = monthCost,
+                    onEdit = { budgetSheetOpen = true },
+                )
+                Spacer(Modifier.height(14.dp))
                 PnlCard(ledger)
                 Spacer(Modifier.height(14.dp))
             }
@@ -177,7 +187,113 @@ fun ReviewScreen(
             }
         }
     }
+
+    if (budgetSheetOpen) {
+        BudgetSheet(
+            current = monthlyBudget,
+            onDismiss = { budgetSheetOpen = false },
+            onSelect = { value ->
+                viewModel.setMonthlyBudget(value)
+                budgetSheetOpen = false
+            },
+        )
+    }
 }
+
+/** 本月预算：只做提醒，不制造"花够就能中"的错觉。 */
+@Composable
+private fun BudgetCard(budgetYuan: Long, spentYuan: Long, onEdit: () -> Unit) {
+    SketchCard(seed = "review-budget", tilt = 0.22f) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SketchSectionTitle("本月预算", modifier = Modifier.weight(1f))
+            SketchMiniButton(label = if (budgetYuan > 0L) "改预算" else "设预算", seed = "budget-edit", onClick = onEdit)
+        }
+        Spacer(Modifier.height(8.dp))
+        if (budgetYuan <= 0L) {
+            Text(
+                "本月已花 %,d 元 · 还没设置预算".format(spentYuan),
+                style = MaterialTheme.typography.bodyMedium,
+                color = SketchPalette.Ink,
+            )
+        } else {
+            val frac = (spentYuan.toFloat() / budgetYuan).coerceIn(0f, 1f)
+            val over = spentYuan > budgetYuan
+            Text(
+                if (over) {
+                    "本月已花 %,d / %,d 元 · 超出 %,d 元".format(spentYuan, budgetYuan, spentYuan - budgetYuan)
+                } else {
+                    "本月已花 %,d / %,d 元 · 还剩 %,d 元".format(spentYuan, budgetYuan, budgetYuan - spentYuan)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (over) SketchPalette.RedInk else SketchPalette.Ink,
+            )
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(9.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(SketchPalette.Ink.copy(alpha = 0.09f)),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(frac)
+                        .height(9.dp)
+                        .background(if (over) SketchPalette.RedInk else SketchPalette.Ink.copy(alpha = 0.55f)),
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "只统计「记录购买」的投入。买彩票的期望回报为负，预算用来止损，不是投资计划。",
+            style = MaterialTheme.typography.labelSmall,
+            color = SketchPalette.InkFaint,
+        )
+    }
+}
+
+@Composable
+private fun BudgetSheet(current: Long, onDismiss: () -> Unit, onSelect: (Long) -> Unit) {
+    SketchSheet(onDismiss = onDismiss) { dismiss ->
+        Text("本月预算", style = MaterialTheme.typography.titleMedium, color = SketchPalette.Ink)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "按本地月份的「记录购买」合计。0 表示不设上限。",
+            style = MaterialTheme.typography.bodySmall,
+            color = SketchPalette.InkSoft,
+        )
+        Spacer(Modifier.height(10.dp))
+        BUDGET_PRESETS.forEach { preset ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        dismiss()
+                        onSelect(preset)
+                    }
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (preset == 0L) "不设预算" else "%,d 元 / 月".format(preset),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (preset == current) SketchPalette.RedInk else SketchPalette.Ink,
+                )
+                Spacer(Modifier.weight(1f))
+                if (preset == current) {
+                    Text("当前", style = MaterialTheme.typography.labelSmall, color = SketchPalette.InkSoft)
+                }
+            }
+            SketchDivider(seed = "budget-$preset")
+        }
+    }
+}
+
+private val BUDGET_PRESETS = listOf(0L, 100L, 200L, 500L, 1_000L, 2_000L)
 
 /** 月度账单：按月汇总投入与奖金，时间倒序。 */
 @Composable
@@ -421,19 +537,27 @@ private fun PnlCard(ledger: PurchaseLedger) {
             )
         }
         Spacer(Modifier.height(8.dp))
-        SketchLineChart(
-            values = ledger.cumulativeNet,
-            baseline = 0f,
-            includeZero = true,
-            area = true,
-            markers = ledger.winIndices,
-            seed = "pnl-line",
-        )
-        Text(
-            "累计净收益（奖金 − 投入），按购买时间；圆点 = 中奖的那几笔。",
-            style = MaterialTheme.typography.bodySmall,
-            color = SketchPalette.InkSoft,
-        )
+        if (ledger.cumulativeNet.size >= 2) {
+            SketchLineChart(
+                values = ledger.cumulativeNet,
+                baseline = 0f,
+                includeZero = true,
+                area = true,
+                markers = ledger.winIndices,
+                seed = "pnl-line",
+            )
+            Text(
+                "累计净收益（奖金 − 投入），按购买时间；圆点 = 中奖的那几笔。",
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.InkSoft,
+            )
+        } else {
+            Text(
+                "只有一笔记录，还画不出趋势；再记录一次购买就会出现累计净收益曲线。",
+                style = MaterialTheme.typography.bodySmall,
+                color = SketchPalette.InkSoft,
+            )
+        }
         if (ledger.tierCounts.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             PrizeTier.entries.sortedByDescending { it.rank }.forEach { tier ->
