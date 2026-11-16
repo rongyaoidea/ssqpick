@@ -116,6 +116,7 @@ ssqpick/
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 模块职责与数据流
 - [docs/SIM_LAB.md](docs/SIM_LAB.md) —— 模拟实验室口径、指标与规模上限
 - [docs/STRATEGY_STUDY.md](docs/STRATEGY_STUDY.md) —— 策略选号的窗口研究（walk-forward）
+- [docs/OMISSION_STREAK_STUDY.md](docs/OMISSION_STREAK_STUDY.md) —— 遗漏、连开、重号与连号对下一期的影响
 - [UI_UX.md](UI_UX.md) —— 界面结构与设计说明
 
 ## 本地构建
